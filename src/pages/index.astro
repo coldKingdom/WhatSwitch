@@ -81,6 +81,7 @@ const description =
           <div class="b-row" data-ctl="dir"><span class="b-label" id="b-dir-label">Install dir</span><input class="b-input" id="b-dir" type="text" autocomplete="off" spellcheck="false" /></div>
           <div class="b-row" data-ctl="norestart"><span class="b-label"></span><label class="b-check"><input type="checkbox" id="b-norestart" checked /> No restart</label></div>
           <div class="b-row" data-ctl="log"><span class="b-label"></span><label class="b-check"><input type="checkbox" id="b-log" /> Log to file</label><input class="b-input b-input-sm" id="b-logpath" type="text" autocomplete="off" spellcheck="false" /></div>
+          <div class="b-row" data-ctl="mode" hidden><span class="b-label">Install mode</span><div class="seg" id="b-mode"></div></div>
           <div class="b-row" data-ctl="noupdates" hidden><span class="b-label"></span><label class="b-check"><input type="checkbox" id="b-noupdates" /> Skip update check <code>/exenoupdates</code></label></div>
           <div class="b-row" data-ctl="noprereqs" hidden><span class="b-label"></span><label class="b-check"><input type="checkbox" id="b-noprereqs" /> Skip prerequisites <code>/noprereqs</code></label></div>
           <div class="b-row" data-ctl="props" id="b-props-wrap" hidden><span class="b-label">Properties</span><div class="b-props" id="b-props"></div></div>
@@ -113,6 +114,13 @@ const description =
 
       <!-- Custom property names harvested from the binary (Advanced Installer); built dynamically -->
       <div id="r-custom" hidden></div>
+
+      <!-- Engine-level failure mode. Deliberately ABOVE the notes and visually distinct: this is the
+           "your correct command still fails" case, and it is worthless if it reads as more prose. -->
+      <p class="warn-callout" id="r-warn" hidden></p>
+
+      <!-- Credential-shaped parameters. A note about where the value ENDS UP, not a place to put it. -->
+      <p class="warn-callout" id="r-secret" hidden></p>
 
       <p class="notes" id="r-notes"></p>
 
@@ -521,6 +529,15 @@ const description =
 
   #result .notes { font-size: 14px; line-height: 1.6; color: var(--ink-2); margin: 18px 0 0; text-wrap: pretty; }
 
+  /* Amber, not red: the command above is CORRECT, this is a trap that may bite at deploy time. */
+  #result .warn-callout {
+    margin: 18px 0 0; padding: 12px 14px; border-radius: 8px;
+    border: 1px solid rgba(180, 120, 20, 0.35); border-left: 3px solid #b47814;
+    background: rgba(180, 120, 20, 0.07);
+    font-size: 14px; line-height: 1.6; color: var(--ink-2); text-wrap: pretty;
+  }
+  #result .warn-callout strong { color: var(--ink); }
+
   #result .props { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
   #result .props li {
     display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 12px; row-gap: 3px;
@@ -581,7 +598,7 @@ const description =
 </style>
 
 <script>
-  import { detectInstaller, bestEffortSwitches } from '../lib/installerDetect';
+  import { detectInstaller, bestEffortSwitches, looksLikeSecretParam } from '../lib/installerDetect';
   import type { DetectionResult } from '../lib/installerDetect';
   import { analyzeBurn, type BurnAnalysis } from '../lib/burn';
   import type { MsiAnalysis } from '../lib/msi';
@@ -957,6 +974,7 @@ const description =
     ops: Array<{ id: string; label: string }>;
     passive: boolean; norestart: boolean; log: boolean; dir: boolean; props: boolean;
     noupdates?: boolean; noprereqs?: boolean; // Advanced Installer bootstrapper toggles
+    mode?: boolean;                           // Inno /ALLUSERS | /CURRENTUSER install mode
     dirLabel?: (op: string) => string;
   }
   const BUILDER: Record<string, BuildCfg> = {
@@ -979,6 +997,7 @@ const description =
     'inno': {
       ops: [{ id: 'install', label: 'Install' }, { id: 'uninstall', label: 'Uninstall' }],
       passive: true, norestart: true, log: true, dir: true, props: false,
+      mode: true,
     },
     'nsis': {
       ops: [{ id: 'install', label: 'Install' }, { id: 'uninstall', label: 'Uninstall' }],
@@ -1003,7 +1022,7 @@ const description =
   interface BuildOpts {
     op: string; ui: 'silent' | 'passive' | 'interactive';
     norestart: boolean; log: boolean; logPath: string; dir: string;
-    noupdates: boolean; noprereqs: boolean;
+    noupdates: boolean; noprereqs: boolean; mode: string;
     props: Array<{ key: string; value: string }>;
   }
 
@@ -1044,6 +1063,9 @@ const description =
       if (o.op === 'uninstall') p.push('"%ProgramFiles%\\<App>\\unins000.exe"'); else p.push(exe);
       if (o.ui === 'silent') p.push('/VERYSILENT /SUPPRESSMSGBOXES'); else if (o.ui === 'passive') p.push('/SILENT');
       if (o.op === 'install') p.push('/SP-');
+      // Install mode. Only meaningful on install - unins000.exe inherits the mode it was created
+      // with. See the engine warning: this is what unsticks a silent Inno install that hangs.
+      if (o.op === 'install' && o.mode) p.push(o.mode === 'allusers' ? '/ALLUSERS' : '/CURRENTUSER');
       if (o.norestart) p.push('/NORESTART');
       if (o.dir && o.op === 'install') p.push(`/DIR="${o.dir}"`);
       if (o.log) p.push(`/LOG="${o.logPath}"`);
@@ -1140,6 +1162,18 @@ const description =
       : [{ id: 'silent', label: 'Silent' }, { id: 'interactive', label: 'Interactive' }];
     fillSeg($('b-ui'), uiItems, ui, (id) => { ui = id as typeof ui; });
 
+    // Inno install mode. Defaults to NOT SET on purpose: adding /ALLUSERS unconditionally would
+    // break every Inno installer that never opted into the command-line override. This makes the
+    // fix one click away instead of guessing it for you.
+    let mode = '';
+    if (cfg.mode) {
+      fillSeg($('b-mode'), [
+        { id: '', label: 'Not set' },
+        { id: 'allusers', label: 'All users' },
+        { id: 'currentuser', label: 'Current user' },
+      ], mode, (id) => { mode = id; });
+    }
+
     const norestartEl = $<HTMLInputElement>('b-norestart');
     const logEl = $<HTMLInputElement>('b-log');
     const logPathEl = $<HTMLInputElement>('b-logpath');
@@ -1186,6 +1220,7 @@ const description =
       showRow('dir', cfg.dir && dirApplies(r.engine, op));
       showRow('norestart', cfg.norestart && !extractOnly);
       showRow('log', cfg.log && !extractOnly);
+      showRow('mode', !!cfg.mode && op === 'install');
       showRow('noupdates', !!cfg.noupdates && !extractOnly);
       showRow('noprereqs', !!cfg.noprereqs && !extractOnly);
       showRow('props', cfg.props && !extractOnly);
@@ -1201,6 +1236,7 @@ const description =
         dir: cfg.dir ? dirEl.value.trim() : '',
         noupdates: !!cfg.noupdates && noupdatesEl.checked,
         noprereqs: !!cfg.noprereqs && noprereqsEl.checked,
+        mode: cfg.mode ? mode : '',
         props: readProps(propsHost),
       }));
     };
@@ -1364,6 +1400,39 @@ const description =
       customEl.append(h, note, chips);
     } else {
       customEl.hidden = true;
+    }
+
+    const warnEl = $('r-warn');
+    warnEl.innerHTML = '';
+    warnEl.hidden = !r.warning;
+    if (r.warning) {
+      const lead = document.createElement('strong');
+      lead.textContent = 'Before you deploy this: ';
+      warnEl.append(lead, document.createTextNode(r.warning));
+    }
+
+    // Credential-shaped parameters, from every name source we have: parsed MSI properties, the
+    // Advanced Installer harvest, and any curated catalog properties for this app.
+    const secretNames = Array.from(new Set([
+      ...(r.msi?.properties ?? []).map((p) => p.name),
+      ...(r.customProperties ?? []),
+      ...((cat && showCat ? cat.properties ?? [] : []).map((p) => p.name)),
+    ].filter(looksLikeSecretParam))).slice(0, 6);
+
+    const secretEl = $('r-secret');
+    secretEl.innerHTML = '';
+    secretEl.hidden = secretNames.length === 0;
+    if (secretNames.length) {
+      const lead = document.createElement('strong');
+      lead.textContent = 'This installer takes a secret on the command line (' + secretNames.join(', ') + '). ';
+      secretEl.append(lead, document.createTextNode(
+        'Anything passed as an argument is visible in the process list to every user on that machine ' +
+        'while the install runs, and is routinely captured by inventory, EDR and RMM job history - so ' +
+        'a "silent" install can still leak the key. Where the package supports a transform (.mst) or a ' +
+        'response file, put the value there instead. Otherwise inject it at run time from a secret ' +
+        'store rather than hard-coding it into a script, a package or a job definition. SwitchHunt ' +
+        'will never ask you for the value: it runs entirely in your browser and stores nothing.'
+      ));
     }
 
     $('r-notes').textContent = r.notes ?? '';

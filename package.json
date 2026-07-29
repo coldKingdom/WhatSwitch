@@ -15,7 +15,8 @@
     "preview": "astro preview",
     "gen:catalog": "tsx scripts/gen-catalog.ts",
     "astro": "astro",
-    "check:parity": "node scripts/check-lib-parity.mjs"
+    "check:parity": "node scripts/check-lib-parity.mjs",
+    "test:secrets": "tsx scripts/test-secret-params.ts"
   },
   "dependencies": {
     "astro": "^5.16.0"

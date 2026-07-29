@@ -77,6 +77,13 @@ export interface DetectionResult {
   /** Modifier flags that apply across the operations above (UI level, restart, logging, target). */
   modifiers?: string;
   confidence: 'high' | 'medium' | 'low' | 'none';
+  /**
+   * ENGINE-LEVEL FAILURE MODE - rendered as a callout above the notes, not buried in them.
+   * Reserved for "your correct-looking command will still fail, and here is why" traps that are a
+   * property of the ENGINE rather than of one app. The catalog can only warn about apps it lists;
+   * this reaches every installer built with the engine, which is most of them.
+   */
+  warning?: string;
   /** Caveats / how-to notes rendered under the result. */
   notes?: string;
   /** Best-effort metadata pulled from the PE version resource (may be undefined). */
@@ -90,6 +97,38 @@ export interface DetectionResult {
   customProperties?: string[];
   /** Deep MSI analysis (property matrix + uninstall-replay), present only for MSI packages. */
   msi?: MsiAnalysis;
+}
+
+// ── credential-shaped parameter names ────────────────────────────────────────
+/**
+ * Flag parameters whose NAME says they carry a secret (license key, password, activation code).
+ *
+ * This is deliberately a NOTE, not a feature. SwitchHunt is a static analyzer that never runs
+ * anything, never uploads, never stores - so it has no business holding a secret, and any tool
+ * that offered to "remember your license key" in browser storage would be worse than a text file.
+ * What it CAN honestly do is point out that a value passed on the command line is visible in the
+ * process list and routinely captured by inventory/EDR/RMM job history, which is the part people
+ * miss.
+ *
+ * MSI already has an author-declared signal for this (MsiHiddenProperties -> tier 'sensitive'),
+ * but most installers never declare it, and non-MSI engines have nothing at all. Hence the name
+ * heuristic as a backstop.
+ */
+const SECRET_PARAM_RE =
+  /(PASSWORD|PASSPHRASE|PWD|SECRET|APIKEY|API_KEY|AUTHKEY|AUTHTOKEN|TOKEN|CREDENTIAL|PRIVATEKEY|SERIALNUM|SERIALNO|SERIALKEY|PIDKEY|CDKEY|PRODUCTKEY|PRODKEY|LICEN[CS]EKEY|LICEN[CS]ECODE|REGCODE|UNLOCKCODE|ACTIVATIONCODE|ACTIVATIONKEY)/i;
+
+/**
+ * Names that LOOK credential-shaped but are booleans, paths or endpoints - LICENSEACCEPTED,
+ * TOKENPATH, AUTHSERVER. Flagging those trains people to ignore the warning, which is worse than
+ * not showing it.
+ */
+const NOT_SECRET_PARAM_RE =
+  /(ACCEPT|AGREE|EULA|PATH|FILE|FOLDER|_?DIR\b|URL|SERVER|HOST|PORT|ENABLE|DISABLE|SHOW|HIDE|COUNT|TYPE|MODE|EXPIR|CHECK|VALIDAT)/i;
+
+/** True when a parameter name looks like it carries a secret value. */
+export function looksLikeSecretParam(name: string): boolean {
+  if (!name) return false;
+  return SECRET_PARAM_RE.test(name) && !NOT_SECRET_PARAM_RE.test(name);
 }
 
 // ── byte helpers ─────────────────────────────────────────────────────────────
@@ -536,11 +575,27 @@ function detectCore(buf: ArrayBuffer, fileName?: string): DetectionResult {
       ],
       modifiers:
         '/SILENT (progress bar only) vs /VERYSILENT (nothing) · /SUPPRESSMSGBOXES · /NORESTART · ' +
-        '/SP- (skip the "this will install…" prompt) · /DIR="C:\\Path" · /LOG="C:\\out.log"',
+        '/SP- (skip the "this will install…" prompt) · /ALLUSERS or /CURRENTUSER (install mode) · ' +
+        '/DIR="C:\\Path" · /LOG="C:\\out.log"',
       confidence: 'high',
+      // Engine-level trap, not an app-level one - see the `warning` field's doc comment. Two apps
+      // confirmed on a restored VM baseline (GIMP 3.2.4, Greenshot 1.3.315): the silent flags are
+      // correct and the install still never completes as SYSTEM.
+      warning:
+        'If a silent install HANGS FOREVER or exits 1 "Setup failed to initialize", the cause is ' +
+        'usually Inno\'s "Select Setup Install Mode" page (install for me only / for all users). It ' +
+        'is a WIZARD PAGE, not a message box, and it is shown BEFORE the silent machinery engages - ' +
+        'so /VERYSILENT and /SUPPRESSMSGBOXES do not suppress it. Under a deployment tool (SYSTEM, ' +
+        'session 0) there is nobody to answer it. Adding /ALLUSERS (machine-wide) or /CURRENTUSER ' +
+        'skips the page. It is not in the command above because Inno only accepts those flags when ' +
+        'the installer opted in (PrivilegesRequiredOverridesAllowed includes commandline), and ' +
+        'whether THIS one did cannot be read from the binary without unpacking its compiled setup ' +
+        'script. So: try it first when a silent Inno install stalls, and verify on one machine ' +
+        'before you push it to a fleet.',
       notes:
         'Inno has no separate repair/layout verb - reinstalling over the top repairs. The generated ' +
-        'unins000.exe in the install dir is the uninstaller.',
+        'unins000.exe in the install dir is the uninstaller. Its path is only a guess here - read the ' +
+        'real one from the app\'s UninstallString in the registry after a test install.',
     };
   }
 
