@@ -415,10 +415,10 @@
         "product": "greenshot",
         "file": "greenshot.*installer"
       },
-      "install": "{file} /VERYSILENT",
-      "uninstall": "\"%ProgramFiles%\\Greenshot\\unins000.exe\" /SILENT",
-      "detect": null,
-      "note": "Inno Setup."
+      "install": "{file} /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /ALLUSERS",
+      "uninstall": null,
+      "detect": "C:\\Program Files\\Greenshot\\Greenshot.exe",
+      "note": "Inno Setup, and /VERYSILENT alone is NOT enough. The installer shows a \"Select Setup Install Mode\" dialog that no /SILENT flag suppresses - without /ALLUSERS it hangs forever under a deployment tool (session 0 has nobody to click it). Also: the silent install OPENS THE GREENSHOT WEBSITE in a browser when it finishes and there is no switch to stop it, confirmed by the maintainers. Add /MERGETASKS=\"!startup\" to skip the run-at-startup entry. No uninstall string is published: the vendor-registered unins000.exe /SILENT hung indefinitely as SYSTEM in testing, and a hanging uninstall is worse than none."
     },
     {
       "name": "LibreOffice",
