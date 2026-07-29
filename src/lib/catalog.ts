@@ -18,6 +18,29 @@ export interface CatalogEntry {
   detect?: string;
   /** Why it's non-obvious - the gotcha worth surfacing. */
   note?: string;
+  /**
+   * Named properties worth passing, in STRUCTURED form so the UI can act on them.
+   *
+   * The engine already reads every public property out of an MSI - the problem is that a real MSI
+   * declares 100+ of them and the tiering heuristic (MsiHiddenProperties / wizard Edit controls /
+   * SecureCustomProperties) only promotes the ones the AUTHOR flagged. A property like
+   * REGISTER_ALL_MSO_TYPES is none of those, so it falls into the collapsed "All N properties" dump
+   * where nobody finds it.
+   *
+   * That is the one job the parser genuinely cannot do: knowing WHICH of the 100 matter. A human
+   * verified these, so the UI promotes them and offers them as one-click chips into the builder.
+   * Prose in `note` cannot be clicked; this can.
+   */
+  properties?: CatalogProperty[];
+}
+
+export interface CatalogProperty {
+  /** Public (all-uppercase) property name, exactly as passed on the command line. */
+  name: string;
+  /** The value that does the useful thing. Empty when the admin must supply it (a licence key). */
+  value?: string;
+  /** Plain-English effect. Shown next to the chip so the choice is obvious without vendor docs. */
+  why: string;
 }
 
 export const CATALOG: CatalogEntry[] = [
@@ -176,6 +199,29 @@ export const CATALOG: CatalogEntry[] = [
   { name: 'OBS Studio', match: { product: /obs studio/i, file: /OBS-Studio|obs-studio/i }, install: '{file} /S', uninstall: '"%ProgramFiles%\\obs-studio\\uninstall.exe" /S', detect: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', note: 'NSIS.' },
   { name: 'GIMP', match: { product: /^gimp/i, file: /gimp.*setup/i }, install: '{file} /VERYSILENT /NORESTART', note: 'Inno Setup.' },
   { name: 'Node.js', match: { product: /node\.js/i, file: /node-v.*\.msi/i }, install: 'msiexec /i "{file}" /qn /norestart' },
+  // ── Added 2026-07-26. Every command below was confirmed against TWO independent sources
+  // (vendor/upstream documentation + the offlineinstallersetup silent-install cheatsheet) before
+  // being published. Deliberately NOT added despite being requested: Slack — its official docs now
+  // document MSIX (Add-AppxPackage) only, and the widely-copied "msiexec /i slack-standalone.msi
+  // /qn" line no longer matches what Slack ships. Publishing a stale switch on a page whose whole
+  // value is "this one is correct" would be worse than omitting the app.
+  { name: 'FileZilla', match: { product: /filezilla/i, file: /filezilla.*setup/i }, install: '{file} /S', uninstall: '"%ProgramFiles%\\FileZilla FTP Client\\uninstall.exe" /S', note: 'NSIS. /S suppresses the wizard; the bundled-offer screens are skipped by the official silent setup.' },
+  { name: 'PuTTY', match: { product: /^putty/i, file: /putty.*installer\.msi/i }, install: 'msiexec /i "{file}" /quiet /norestart', uninstall: 'msiexec /x "{file}" /quiet /norestart', note: 'MSI (the .exe on the download page is the program itself, not an installer - grab the 64-bit MSI).' },
+  { name: 'Audacity', match: { product: /audacity/i, file: /audacity-win/i }, install: '{file} /VERYSILENT /NORESTART', note: 'Inno Setup.' },
+  { name: 'Postman', match: { product: /postman/i, file: /postman.*\.msi/i }, install: 'msiexec /i "{file}" /qn', note: 'Enterprise MSI only (the consumer build is a per-user .exe). INSTALLDIR sets a custom path.' },
+
+  // Batch 2, 2026-07-26. Same two-source rule.
+  // Foxit PDF READER is a different product from the Foxit PDF EDITOR entry above - reader is free,
+  // editor is licensed, and they ship separate installers. Command from Foxit's own "PDF Reader
+  // Deployment and Configuration" PDF, corroborated by ManageEngine's package definition.
+  { name: 'Foxit PDF Reader', match: { product: /foxit (pdf )?reader/i, file: /foxit.*reader.*\.msi/i }, install: 'msiexec /i "{file}" /quiet', uninstall: 'msiexec /x "{file}" /quiet CLEAN="1"', note: 'Vendor docs use /quiet. CLEAN="1" on uninstall also removes registry + user data. ADDLOCAL="FX_PDFVIEWER" installs the viewer only.' },
+  { name: 'Sumatra PDF', match: { product: /sumatra/i, file: /sumatra/i }, install: '{file} -install -s', note: 'Custom installer - NOT an MSI and NOT NSIS, so /S and /qn both do nothing. -install -s is the documented pair.' },
+  { name: 'Greenshot', match: { product: /greenshot/i, file: /greenshot.*installer/i }, install: '{file} /VERYSILENT', uninstall: '"%ProgramFiles%\\Greenshot\\unins000.exe" /SILENT', note: 'Inno Setup.' },
+  { name: 'LibreOffice', match: { product: /libreoffice/i, file: /libreoffice.*\.msi/i }, install: 'msiexec /i "{file}" /quiet /norestart', note: 'Standard MSI. Add REGISTER_ALL_MSO_TYPES=1 to take over Office file associations, or REGISTER_NO_MSO_TYPES=1 to leave them alone.',
+    properties: [
+      { name: 'REGISTER_ALL_MSO_TYPES', value: '1', why: 'Take over .docx/.xlsx/.pptx associations from Office.' },
+      { name: 'REGISTER_NO_MSO_TYPES',  value: '1', why: 'Leave Office file associations alone.' },
+    ] },
 ];
 
 /** First catalog entry whose product/filename match the detected metadata, or null. */

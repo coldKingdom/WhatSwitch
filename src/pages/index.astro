@@ -530,6 +530,19 @@ const description =
     font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; text-align: center;
     padding: 3px 7px; border-radius: 999px; border: 1px solid; align-self: center; min-width: 64px;
   }
+  /* Curated-property chips: the catalog's one job the parser can't do - saying WHICH of the
+     file's 100+ properties actually matter. Clickable so it lands in the builder, not retyped. */
+  #result .catalog-props { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  #result .catalog-props-label { flex: 1 0 100%; margin: 0 0 2px; font-size: 13px; color: var(--ink2); }
+  #result .catalog-prop-chip {
+    display: inline-flex; align-items: baseline; gap: 8px; cursor: pointer; text-align: left;
+    padding: 6px 10px; border-radius: 8px; border: 1px solid var(--brand);
+    background: var(--surface, #fff); font: inherit;
+  }
+  #result .catalog-prop-chip:hover { background: var(--brand-bg, rgba(99,102,241,0.08)); }
+  #result .catalog-prop-chip code { font-size: 12px; color: var(--brand); white-space: nowrap; }
+  #result .catalog-prop-why { font-size: 12px; color: var(--ink2); }
+
   #result .tier-required  { color: var(--danger);  background: var(--danger-bg, rgba(220,38,38,0.08));  border-color: var(--danger); }
   #result .tier-likely    { color: var(--warning); background: var(--warning-bg); border-color: var(--warning); }
   #result .tier-sensitive { color: var(--brand);   background: var(--brand-bg);   border-color: var(--brand); }
@@ -1238,6 +1251,48 @@ const description =
         n.textContent = cat.note;
         catEl.append(n);
       }
+
+      // Curated properties as ONE-CLICK CHIPS.
+      //
+      // The engine already read every public property out of the MSI, but a real installer declares
+      // 100+ and the tiering heuristic only promotes the ones the AUTHOR flagged (hidden props,
+      // wizard Edit controls, SecureCustomProperties). A switch like REGISTER_ALL_MSO_TYPES is none
+      // of those, so it lands in the collapsed "All N properties" dump where nobody finds it. Naming
+      // it in the note was prose you had to retype; this puts it straight into the builder.
+      if (cat.properties?.length) {
+        const wrap = document.createElement('div');
+        wrap.className = 'catalog-props';
+        const lbl = document.createElement('p');
+        lbl.className = 'catalog-props-label';
+        lbl.textContent = 'Known properties for this app - click to add to the command builder:';
+        wrap.append(lbl);
+        for (const cp of cat.properties) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'catalog-prop-chip';
+          const code = document.createElement('code');
+          code.textContent = cp.value ? `${cp.name}=${cp.value}` : cp.name;
+          const why = document.createElement('span');
+          why.className = 'catalog-prop-why';
+          why.textContent = cp.why;
+          chip.append(code, why);
+          chip.title = 'Add to the command builder below';
+          chip.addEventListener('click', () => {
+            // Resolve the host at CLICK time, not render time - the builder is rebuilt per result and
+            // may not exist yet when the catalog block renders.
+            const host = document.getElementById('b-props');
+            if (!host) return;
+            // Don't stack duplicates if it's clicked twice.
+            const already = Array.from(host.querySelectorAll('.b-prop-key, .b-prop-key-input'))
+              .some((k) => ((k as HTMLElement).textContent || (k as HTMLInputElement).value || '').trim().toUpperCase() === cp.name.toUpperCase());
+            if (!already) addPropRow(host, cp.name, cp.value ?? '', true);
+            recomputeBuilder?.();
+            host.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          });
+          wrap.append(chip);
+        }
+        catEl.append(wrap);
+      }
     } else {
       catEl.hidden = true;
     }
@@ -1423,7 +1478,26 @@ const description =
       // Big files: read only the head. Every engine marker (PE section table, stub strings,
       // archive magic) sits at the front - full reads + full-buffer signature scans are what
       // used to freeze the tab on 300+ MB Burn bundles (Sony Catalyst Browse).
-      const big = file.size > DETECT_SLICE;
+      //
+      // EXCEPT MSI. That reasoning holds for stub-fronted engines (Inno/NSIS/Burn) and is FALSE for
+      // an OLE compound file: an MSI's directory and its Property / SecureCustomProperties streams
+      // can sit anywhere in the file, including past the head slice. Parsing a truncated MSI makes
+      // analyzeMsi throw, detectInstaller swallows it (`catch { analysis = null }`), and the user
+      // gets engine detection with ZERO properties - silently losing the single most valuable thing
+      // the tool produces, on exactly the enterprise packages where it matters most.
+      //
+      // Measured 2026-07-29 on rff-agent-1.3.9.msi (111 MB): SecureCustomProperties really contains
+      // APIKEY;APIURL;DEREGISTER, and none of them surfaced because only the first 32 MB was read.
+      //
+      // So: sniff the CFB magic in a tiny 8-byte probe and read the WHOLE file for MSIs. MAX_BYTES
+      // above still guards the genuinely absurd case, so this cannot become an unbounded read.
+      const probe = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+      const isCfb = probe.length === 8 && probe[0] === 0xd0 && probe[1] === 0xcf && probe[2] === 0x11 &&
+                    probe[3] === 0xe0 && probe[4] === 0xa1 && probe[5] === 0xb1 && probe[6] === 0x1a && probe[7] === 0xe1;
+      const big = file.size > DETECT_SLICE && !isCfb;
+      if (isCfb && file.size > DETECT_SLICE) {
+        setStatus(`Reading all ${Math.round(file.size / 1024 / 1024)} MB - an MSI's property tables can live past the head of the file…`);
+      }
       const buf = big ? await file.slice(0, DETECT_SLICE).arrayBuffer() : await file.arrayBuffer();
       lastBuf = buf;
       const r = detectInstaller(buf, file.name, big ? file.size : undefined);

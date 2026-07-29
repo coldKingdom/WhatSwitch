@@ -4,7 +4,7 @@ Hand-verified silent-install strings for apps whose switches you can't derive fr
 custom CLIs, mandatory keys, compressed payloads. `{file}` is replaced with the dropped installer name at
 runtime. For well-known apps the catalog also carries the real uninstall command and a file-detection path.
 
-**31 entries.** Generated from `src/lib/catalog.ts` - do not hand-edit; run `npm run gen:catalog`.
+**39 entries.** Generated from `src/lib/catalog.ts` - do not hand-edit; run `npm run gen:catalog`.
 
 Got one we miss? [Submit it with the issue form](https://github.com/deadarcher/SwitchHunt/issues/new?template=silent-install-string.yml) (no coding needed) - or PR `src/lib/catalog.ts` ([CONTRIBUTING](CONTRIBUTING.md)).
 
@@ -41,3 +41,11 @@ Got one we miss? [Submit it with the issue form](https://github.com/deadarcher/S
 | OBS Studio | `{file} /S` | `"%ProgramFiles%\obs-studio\uninstall.exe" /S` | `C:\Program Files\obs-studio\bin\64bit\obs64.exe` | NSIS. |
 | GIMP | `{file} /VERYSILENT /NORESTART` | - | - | Inno Setup. |
 | Node.js | `msiexec /i "{file}" /qn /norestart` | - | - |  |
+| FileZilla | `{file} /S` | `"%ProgramFiles%\FileZilla FTP Client\uninstall.exe" /S` | - | NSIS. /S suppresses the wizard; the bundled-offer screens are skipped by the official silent setup. |
+| PuTTY | `msiexec /i "{file}" /quiet /norestart` | `msiexec /x "{file}" /quiet /norestart` | - | MSI (the .exe on the download page is the program itself, not an installer - grab the 64-bit MSI). |
+| Audacity | `{file} /VERYSILENT /NORESTART` | - | - | Inno Setup. |
+| Postman | `msiexec /i "{file}" /qn` | - | - | Enterprise MSI only (the consumer build is a per-user .exe). INSTALLDIR sets a custom path. |
+| Foxit PDF Reader | `msiexec /i "{file}" /quiet` | `msiexec /x "{file}" /quiet CLEAN="1"` | - | Vendor docs use /quiet. CLEAN="1" on uninstall also removes registry + user data. ADDLOCAL="FX_PDFVIEWER" installs the viewer only. |
+| Sumatra PDF | `{file} -install -s` | - | - | Custom installer - NOT an MSI and NOT NSIS, so /S and /qn both do nothing. -install -s is the documented pair. |
+| Greenshot | `{file} /VERYSILENT` | `"%ProgramFiles%\Greenshot\unins000.exe" /SILENT` | - | Inno Setup. |
+| LibreOffice | `msiexec /i "{file}" /quiet /norestart` | - | - | Standard MSI. Add REGISTER_ALL_MSO_TYPES=1 to take over Office file associations, or REGISTER_NO_MSO_TYPES=1 to leave them alone. |

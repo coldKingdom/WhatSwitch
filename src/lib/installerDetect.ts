@@ -366,7 +366,14 @@ export function detectInstaller(buf: ArrayBuffer, fileName?: string, totalSize?:
   if (totalSize != null && totalSize > buf.byteLength) {
     const totMb = Math.round(totalSize / 1048576);
     const headMb = Math.round(buf.byteLength / 1048576);
-    r.notes = `${r.notes ? r.notes + ' ' : ''}Large file (${totMb} MB): identified from its first ${headMb} MB. Installer stubs and engine markers live at the front of the file, so nothing is lost by skipping the payload.`;
+    // "nothing is lost" is true for STUB-FRONTED engines (Inno/NSIS/Burn/InstallShield), whose
+    // markers and config all sit at the front. It was NOT true for MSI - an OLE compound file's
+    // directory and streams can live past the head, so a truncated read produced an MSI with zero
+    // properties and no warning. The caller now reads MSIs in full (CFB magic sniff in the drop
+    // handler), so this note only ever describes the stub engines it was written for. Keep it
+    // accurate: if a future engine also needs the tail, exempt it there too rather than widening
+    // this claim.
+    r.notes = `${r.notes ? r.notes + ' ' : ''}Large file (${totMb} MB): identified from its first ${headMb} MB. This engine's stub and markers live at the front of the file, so nothing is lost by skipping the payload.`;
   }
   return r;
 }

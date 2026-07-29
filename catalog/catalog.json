@@ -1,6 +1,6 @@
 {
   "_comment": "GENERATED from src/lib/catalog.ts by scripts/gen-catalog.ts - do not hand-edit. Regenerate: npm run gen:catalog",
-  "count": 31,
+  "count": 39,
   "entries": [
     {
       "name": "Citrix Workspace",
@@ -342,6 +342,94 @@
       "uninstall": null,
       "detect": null,
       "note": null
+    },
+    {
+      "name": "FileZilla",
+      "match": {
+        "product": "filezilla",
+        "file": "filezilla.*setup"
+      },
+      "install": "{file} /S",
+      "uninstall": "\"%ProgramFiles%\\FileZilla FTP Client\\uninstall.exe\" /S",
+      "detect": null,
+      "note": "NSIS. /S suppresses the wizard; the bundled-offer screens are skipped by the official silent setup."
+    },
+    {
+      "name": "PuTTY",
+      "match": {
+        "product": "^putty",
+        "file": "putty.*installer\\.msi"
+      },
+      "install": "msiexec /i \"{file}\" /quiet /norestart",
+      "uninstall": "msiexec /x \"{file}\" /quiet /norestart",
+      "detect": null,
+      "note": "MSI (the .exe on the download page is the program itself, not an installer - grab the 64-bit MSI)."
+    },
+    {
+      "name": "Audacity",
+      "match": {
+        "product": "audacity",
+        "file": "audacity-win"
+      },
+      "install": "{file} /VERYSILENT /NORESTART",
+      "uninstall": null,
+      "detect": null,
+      "note": "Inno Setup."
+    },
+    {
+      "name": "Postman",
+      "match": {
+        "product": "postman",
+        "file": "postman.*\\.msi"
+      },
+      "install": "msiexec /i \"{file}\" /qn",
+      "uninstall": null,
+      "detect": null,
+      "note": "Enterprise MSI only (the consumer build is a per-user .exe). INSTALLDIR sets a custom path."
+    },
+    {
+      "name": "Foxit PDF Reader",
+      "match": {
+        "product": "foxit (pdf )?reader",
+        "file": "foxit.*reader.*\\.msi"
+      },
+      "install": "msiexec /i \"{file}\" /quiet",
+      "uninstall": "msiexec /x \"{file}\" /quiet CLEAN=\"1\"",
+      "detect": null,
+      "note": "Vendor docs use /quiet. CLEAN=\"1\" on uninstall also removes registry + user data. ADDLOCAL=\"FX_PDFVIEWER\" installs the viewer only."
+    },
+    {
+      "name": "Sumatra PDF",
+      "match": {
+        "product": "sumatra",
+        "file": "sumatra"
+      },
+      "install": "{file} -install -s",
+      "uninstall": null,
+      "detect": null,
+      "note": "Custom installer - NOT an MSI and NOT NSIS, so /S and /qn both do nothing. -install -s is the documented pair."
+    },
+    {
+      "name": "Greenshot",
+      "match": {
+        "product": "greenshot",
+        "file": "greenshot.*installer"
+      },
+      "install": "{file} /VERYSILENT",
+      "uninstall": "\"%ProgramFiles%\\Greenshot\\unins000.exe\" /SILENT",
+      "detect": null,
+      "note": "Inno Setup."
+    },
+    {
+      "name": "LibreOffice",
+      "match": {
+        "product": "libreoffice",
+        "file": "libreoffice.*\\.msi"
+      },
+      "install": "msiexec /i \"{file}\" /quiet /norestart",
+      "uninstall": null,
+      "detect": null,
+      "note": "Standard MSI. Add REGISTER_ALL_MSO_TYPES=1 to take over Office file associations, or REGISTER_NO_MSO_TYPES=1 to leave them alone."
     }
   ]
 }
