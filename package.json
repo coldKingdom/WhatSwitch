@@ -5,13 +5,17 @@
   "description": "Drop a Windows installer in your browser, get its silent-install switches. 100% client-side - nothing is uploaded.",
   "license": "MIT",
   "homepage": "https://getrff.com/switchhunt",
-  "repository": { "type": "git", "url": "https://github.com/deadarcher/SwitchHunt.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deadarcher/SwitchHunt.git"
+  },
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
     "gen:catalog": "tsx scripts/gen-catalog.ts",
-    "astro": "astro"
+    "astro": "astro",
+    "check:parity": "node scripts/check-lib-parity.mjs"
   },
   "dependencies": {
     "astro": "^5.16.0"

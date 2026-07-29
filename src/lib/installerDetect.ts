@@ -1,4 +1,25 @@
 /**
+ * ============================================================================
+ *  SHARED ENGINE FILE - DO NOT UPDATE ONE COPY WITHOUT THE OTHERS
+ * ============================================================================
+ *  This file exists BYTE-IDENTICAL in more than one repo:
+ *
+ *    1. deadarcher/SwitchHunt      src/lib/installerDetect.ts   (public, the tool)
+ *    2. deadarcher/rff-marketing   src/lib/installerDetect.ts   (hosted at getrff.com/switchhunt)
+ *    3. (planned) RFF.Web - MSI property hints in the deploy wizard.
+ *                 See docs/design/msi-property-hints-in-wizard.md
+ *
+ *  A fix applied to one copy and not the others is not theoretical. Measured 2026-07-29:
+ *    - the SwitchHunt catalog drifted 8 entries in 11 days, nothing detected it
+ *    - an MSI-truncation fix had to be hand-ported into two implementations an hour apart
+ *    - installerDetect.ts and burn.ts were BOTH already out of sync, in OPPOSITE
+ *      directions, within an hour of a deliberate sync
+ *
+ *  Before committing a change here: apply it to every copy, then run
+ *  `node scripts/check-lib-parity.mjs` (present in both repos). CI fails on divergence.
+ * ============================================================================
+ */
+/**
  * Client-side Windows-installer identifier.
  *
  * Runs ENTIRELY in the browser: the page reads the chosen file into an ArrayBuffer and

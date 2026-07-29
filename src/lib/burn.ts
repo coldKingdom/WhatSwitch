@@ -1,4 +1,25 @@
 /**
+ * ============================================================================
+ *  SHARED ENGINE FILE - DO NOT UPDATE ONE COPY WITHOUT THE OTHERS
+ * ============================================================================
+ *  This file exists BYTE-IDENTICAL in more than one repo:
+ *
+ *    1. deadarcher/SwitchHunt      src/lib/burn.ts   (public, the tool)
+ *    2. deadarcher/rff-marketing   src/lib/burn.ts   (hosted at getrff.com/switchhunt)
+ *    3. (planned) RFF.Web - MSI property hints in the deploy wizard.
+ *                 See docs/design/msi-property-hints-in-wizard.md
+ *
+ *  A fix applied to one copy and not the others is not theoretical. Measured 2026-07-29:
+ *    - the SwitchHunt catalog drifted 8 entries in 11 days, nothing detected it
+ *    - an MSI-truncation fix had to be hand-ported into two implementations an hour apart
+ *    - installerDetect.ts and burn.ts were BOTH already out of sync, in OPPOSITE
+ *      directions, within an hour of a deliberate sync
+ *
+ *  Before committing a change here: apply it to every copy, then run
+ *  `node scripts/check-lib-parity.mjs` (present in both repos). CI fails on divergence.
+ * ============================================================================
+ */
+/**
  * WiX Burn bundle X-ray - runs ENTIRELY in the browser, no upload.
  * Written by Brian Vitko.
  *
@@ -191,16 +212,15 @@ export async function analyzeBurn(bytes: Uint8Array): Promise<BurnAnalysis | nul
     Array.from(el.children).filter((c) => c.localName === name);
   const root = doc.documentElement;
 
-  // Bootstrapper application: look at the UX payloads. A DLL not in the known-standard set = custom BA.
-  const uxEl = root.getElementsByTagName('*');
-  const uxPayloads: string[] = [];
-  for (let i = 0; i < uxEl.length; i++) {
-    const el = uxEl[i];
-    if (el.localName === 'Payload' && (el.getAttribute('Container') === 'WixUXContainer' || el.getAttribute('SourcePath')?.startsWith('u'))) {
-      const fp = el.getAttribute('FilePath') || '';
-      if (fp) uxPayloads.push(fp);
-    }
-  }
+  // All <Payload> elements (explicit tag query - a '*' wildcard is unreliable across DOM impls).
+  const payloads = Array.from(root.getElementsByTagName('Payload'));
+
+  // Bootstrapper application: the UX payloads (Container=WixUXContainer, or SourcePath "u…"). A DLL not
+  // in the known-standard set = a custom/vendor BA that may ignore /quiet.
+  const uxPayloads = payloads
+    .filter((el) => el.getAttribute('Container') === 'WixUXContainer' || (el.getAttribute('SourcePath') || '').startsWith('u'))
+    .map((el) => el.getAttribute('FilePath') || '')
+    .filter(Boolean);
   const dlls = uxPayloads.filter((f) => /\.dll$/i.test(f));
   const foreign = dlls.filter((f) => !KNOWN_STD_BA.test(f.replace(/^.*[\\/]/, '')));
   let baType: BurnAnalysis['baType'] = 'unknown';
@@ -212,12 +232,9 @@ export async function analyzeBurn(bytes: Uint8Array): Promise<BurnAnalysis | nul
   // A package's PRIMARY payload is the <Payload> whose Id equals the package's Id (verified against real
   // manifests - payloads link to packages by matching Id, there is no @Package attribute). Map Id->FilePath.
   const fileById = new Map<string, string>();
-  for (let i = 0; i < uxEl.length; i++) {
-    const el = uxEl[i];
-    if (el.localName === 'Payload') {
-      const id = el.getAttribute('Id'); const fp = el.getAttribute('FilePath');
-      if (id && fp && !fileById.has(id)) fileById.set(id, fp);
-    }
+  for (const el of payloads) {
+    const id = el.getAttribute('Id'); const fp = el.getAttribute('FilePath');
+    if (id && fp && !fileById.has(id)) fileById.set(id, fp);
   }
   const kindMap: Record<string, BurnPackage['kind']> = {
     MsiPackage: 'MSI', ExePackage: 'EXE', MspPackage: 'MSP', MsuPackage: 'MSU',
