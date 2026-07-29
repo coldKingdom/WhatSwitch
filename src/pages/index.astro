@@ -72,6 +72,15 @@ const description =
         after the program name so PowerShell passes the rest verbatim.
       </p>
 
+      <!-- POSITION IS THE POINT. These two sit directly under the commands they qualify and ABOVE
+           the builder, the deploy artifacts and the notes. Originally they were next to the notes at
+           the very bottom of the card, below the .intunewin builder - by then the reader has already
+           copied a command or packaged one, so a "before you deploy this" warning has arrived after
+           the deploy. The Inno fix also lives in the builder's Install-mode row immediately below,
+           so the warning has to come first for that control to mean anything. -->
+      <p class="warn-callout" id="r-warn" hidden></p>
+      <p class="warn-callout" id="r-secret" hidden></p>
+
       <!-- Command builder (skeleton; options + props are populated/seeded per engine in the script) -->
       <div id="r-builder" class="builder" hidden>
         <div class="lbl">Build a command</div>
@@ -114,13 +123,6 @@ const description =
 
       <!-- Custom property names harvested from the binary (Advanced Installer); built dynamically -->
       <div id="r-custom" hidden></div>
-
-      <!-- Engine-level failure mode. Deliberately ABOVE the notes and visually distinct: this is the
-           "your correct command still fails" case, and it is worthless if it reads as more prose. -->
-      <p class="warn-callout" id="r-warn" hidden></p>
-
-      <!-- Credential-shaped parameters. A note about where the value ENDS UP, not a place to put it. -->
-      <p class="warn-callout" id="r-secret" hidden></p>
 
       <p class="notes" id="r-notes"></p>
 
