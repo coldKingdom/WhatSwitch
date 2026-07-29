@@ -327,10 +327,10 @@
         "product": "^gimp",
         "file": "gimp.*setup"
       },
-      "install": "{file} /VERYSILENT /NORESTART",
+      "install": "{file} /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /ALLUSERS",
       "uninstall": null,
       "detect": null,
-      "note": "Inno Setup."
+      "note": "Inno Setup, and /VERYSILENT alone is NOT enough. Like Greenshot, GIMP shows the Inno \"Select Setup Install Mode\" dialog, presented BEFORE the silent machinery engages - no /SILENT flag suppresses it. Without /ALLUSERS it hangs forever under a deployment tool (session 0 has nobody to click it). Verified installing machine-wide with these switches. It is also SLOW - roughly 9 minutes for the ~300 MB payload - so raise your deployment timeout above the usual 5-minute default or the job is killed mid-install."
     },
     {
       "name": "Node.js",

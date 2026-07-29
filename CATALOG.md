@@ -39,7 +39,7 @@ Got one we miss? [Submit it with the issue form](https://github.com/deadarcher/S
 | VLC media player | `{file} /S` | `"%ProgramFiles%\VideoLAN\VLC\uninstall.exe" /S` | `C:\Program Files\VideoLAN\VLC\vlc.exe` |  |
 | WinRAR | `{file} /S` | `"%ProgramFiles%\WinRAR\uninstall.exe" /S` | `C:\Program Files\WinRAR\WinRAR.exe` |  |
 | OBS Studio | `{file} /S` | `"%ProgramFiles%\obs-studio\uninstall.exe" /S` | `C:\Program Files\obs-studio\bin\64bit\obs64.exe` | NSIS. |
-| GIMP | `{file} /VERYSILENT /NORESTART` | - | - | Inno Setup. |
+| GIMP | `{file} /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /ALLUSERS` | - | - | Inno Setup, and /VERYSILENT alone is NOT enough. Like Greenshot, GIMP shows the Inno "Select Setup Install Mode" dialog, presented BEFORE the silent machinery engages - no /SILENT flag suppresses it. Without /ALLUSERS it hangs forever under a deployment tool (session 0 has nobody to click it). Verified installing machine-wide with these switches. It is also SLOW - roughly 9 minutes for the ~300 MB payload - so raise your deployment timeout above the usual 5-minute default or the job is killed mid-install. |
 | Node.js | `msiexec /i "{file}" /qn /norestart` | - | - |  |
 | FileZilla | `{file} /S` | `"%ProgramFiles%\FileZilla FTP Client\uninstall.exe" /S` | - | NSIS. /S suppresses the wizard; the bundled-offer screens are skipped by the official silent setup. |
 | PuTTY | `msiexec /i "{file}" /quiet /norestart` | `msiexec /x "{file}" /quiet /norestart` | - | MSI (the .exe on the download page is the program itself, not an installer - grab the 64-bit MSI). |
