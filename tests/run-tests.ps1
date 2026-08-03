@@ -211,6 +211,9 @@ try {
         $sevenZipProfile = New-WhatSwitchDeploymentProfile -AnalysisResult $sevenZipMsi
         Assert-Equal $sevenZipProfile.detection.selected.type 'Msi' 'The 7-Zip MSI should use MSI ProductCode detection'
         Assert-Equal $sevenZipProfile.detection.selected.productCode $sevenZipMsi.Msi.ProductCode 'The deployment profile should preserve the MSI ProductCode'
+        $sevenZipPsadt = New-WhatSwitchPsadtScriptContent -Profile $sevenZipProfile -AnalysisResult $sevenZipMsi
+        $sevenZipMsiActions = @($sevenZipPsadt -split "`r?`n" | Where-Object { $_ -match 'Start-ADTMsiProcess -Action (Install|Uninstall)' })
+        Assert-True (-not ($sevenZipMsiActions -match 'ArgumentList')) 'Default MSI commands should use PSADT config.psd1 without overriding ArgumentList'
     }
 
     $deploymentProfile = New-WhatSwitchDeploymentProfile -AnalysisResult $inno

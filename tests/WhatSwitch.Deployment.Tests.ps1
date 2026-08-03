@@ -76,6 +76,28 @@ BeforeAll {
         $candidates[0].type | Should Be 'Registry'
     }
 
+    It 'låter config.psd1 styra MSI-parametrar om inget uttryckligen ändras' {
+        $analysis = New-TestAnalysis -Path $source -Engine msi
+        $profile = New-WhatSwitchDeploymentProfile -AnalysisResult $analysis
+        $profile.commands.install = 'msiexec /i "setup.exe" /qn /norestart'
+        $profile.commands.uninstall = 'msiexec /x {11111111-2222-3333-4444-555555555555} /qn /norestart'
+        $standard = New-WhatSwitchPsadtScriptContent -Profile $profile -AnalysisResult $analysis
+        $standardInstall = $standard -split "`r?`n" | Where-Object { $_ -match 'Start-ADTMsiProcess -Action Install' }
+        $standardUninstall = $standard -split "`r?`n" | Where-Object { $_ -match 'Start-ADTMsiProcess -Action Uninstall' }
+        $standardInstall | Should Not Match 'ArgumentList'
+        $standardUninstall | Should Not Match 'ArgumentList'
+
+        $profile.commands.install = 'msiexec /i "setup.exe" /qn /norestart ALLUSERS=1 COMPANY="Contoso AB"'
+        $additional = New-WhatSwitchPsadtScriptContent -Profile $profile -AnalysisResult $analysis
+        $additionalLine = $additional -split "`r?`n" | Where-Object { $_ -match 'Start-ADTMsiProcess -Action Install' }
+        $additionalLine.Contains("-AdditionalArgumentList @('ALLUSERS=1', 'COMPANY=`"Contoso AB`"')") | Should Be $true
+
+        $profile.commands.install = 'msiexec /i "setup.exe" /qb /norestart ALLUSERS=1'
+        $override = New-WhatSwitchPsadtScriptContent -Profile $profile -AnalysisResult $analysis
+        $overrideLine = $override -split "`r?`n" | Where-Object { $_ -match 'Start-ADTMsiProcess -Action Install' }
+        $overrideLine.Contains("-ArgumentList '/qb /norestart ALLUSERS=1'") | Should Be $true
+    }
+
     It 'exporterar Intune-inställningar, guide och kontrollsummor' {
         $analysis = New-TestAnalysis -Path $source
         $profile = New-WhatSwitchDeploymentProfile -AnalysisResult $analysis

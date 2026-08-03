@@ -239,6 +239,27 @@ function ConvertTo-WhatSwitchPsSingleQuotedString {
     "'" + $Value.Replace("'", "''") + "'"
 }
 
+function Get-WhatSwitchPsadtMsiArgumentSuffix {
+    param([AllowEmptyString()][string]$Remainder)
+
+    if ([string]::IsNullOrWhiteSpace($Remainder)) { return '' }
+    $tokens = @([regex]::Matches($Remainder, '(?:[^\s"]+|"[^"]*")+') | ForEach-Object Value)
+    # These are semantic equivalents of the defaults in PSADT 4.1.8 Config\config.psd1.
+    # Keeping them would unnecessarily replace the centrally configured MSI parameters.
+    $additionalTokens = @($tokens | Where-Object { $_ -notmatch '(?i)^(?:/qn|/quiet|/norestart|REBOOT=ReallySuppress)$' })
+    if (-not $additionalTokens.Count) { return '' }
+
+    $overridesConfig = @($additionalTokens | Where-Object {
+        $_ -match '(?i)^(?:/q\S*|/passive|/promptrestart|/forcerestart|/l\S*|/log|REBOOT=)'
+    }).Count -gt 0
+    if ($overridesConfig) {
+        return ' -ArgumentList ' + (ConvertTo-WhatSwitchPsSingleQuotedString $Remainder)
+    }
+
+    $expressions = @($additionalTokens | ForEach-Object { ConvertTo-WhatSwitchPsSingleQuotedString $_ })
+    ' -AdditionalArgumentList @(' + ($expressions -join ', ') + ')'
+}
+
 function Set-WhatSwitchPsadtTemplateAssignment {
     param(
         [Parameter(Mandatory)][string]$Content,
@@ -302,12 +323,12 @@ function New-WhatSwitchPsadtScriptContent {
     if ($AnalysisResult.Engine -eq 'msi') {
         $installAction = "Start-ADTMsiProcess -Action Install -FilePath $sourceLiteral"
         $installRemainder = ([string]$Profile.commands.install -replace '(?i)^msiexec(?:\.exe)?\s+/i\s+(?:"[^"]+"|\S+)\s*', '').Trim()
-        if ($installRemainder) { $installAction += ' -ArgumentList ' + (ConvertTo-WhatSwitchPsSingleQuotedString $installRemainder) }
+        $installAction += Get-WhatSwitchPsadtMsiArgumentSuffix -Remainder $installRemainder
         if ($AnalysisResult.Msi -and $AnalysisResult.Msi.ProductCode) {
             $code = ConvertTo-WhatSwitchPsSingleQuotedString ([string]$AnalysisResult.Msi.ProductCode)
             $uninstallAction = "Start-ADTMsiProcess -Action Uninstall -ProductCode $code"
             $uninstallRemainder = ([string]$Profile.commands.uninstall -replace '(?i)^msiexec(?:\.exe)?\s+/x\s+(?:"[^"]+"|\S+)\s*', '').Trim()
-            if ($uninstallRemainder) { $uninstallAction += ' -ArgumentList ' + (ConvertTo-WhatSwitchPsSingleQuotedString $uninstallRemainder) }
+            $uninstallAction += Get-WhatSwitchPsadtMsiArgumentSuffix -Remainder $uninstallRemainder
         } else {
             $uninstallAction = "Start-ADTMsiProcess -Action Uninstall -FilePath $sourceLiteral"
         }

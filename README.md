@@ -44,7 +44,9 @@ The guide supports three output modes per export:
   to be installed on the target.
 - **Complete PSADT 4.1.8** includes the official v4 frontend, module, assets, and LGPL license. What Switch?
   preserves the complete `Invoke-AppDeployToolkit.ps1` template and only changes app metadata plus
-  the marked installation and uninstallation task blocks.
+  the marked installation and uninstallation task blocks. MSI deployments use the defaults from
+  PSADT `Config/config.psd1`; custom public properties are appended with `AdditionalArgumentList`,
+  while `ArgumentList` is used only when the user explicitly overrides UI, restart, or logging behavior.
 
 The selected installer is packaged by default. Enable the source-folder option only when the
 installer depends on adjacent files, and keep the deployment output outside that source folder.
