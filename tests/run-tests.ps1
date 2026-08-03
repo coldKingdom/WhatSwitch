@@ -250,6 +250,10 @@ try {
         $generatedPsadt = Get-Content -LiteralPath (Join-Path $scriptOnlySource 'Invoke-AppDeployToolkit.ps1') -Raw
         Assert-True ($generatedPsadt.Contains('Open-ADTSession')) 'Generated PSADT scripts should use v4 session APIs'
         Assert-True ($generatedPsadt.Contains('Start-ADTProcess')) 'Generated EXE deployments should use Start-ADTProcess'
+        Assert-True ($generatedPsadt.Contains('Show-ADTInstallationWelcome')) 'Generated PSADT scripts should preserve the official pre-install phase'
+        Assert-True ($generatedPsadt.Contains('function Repair-ADTDeployment')) 'Generated PSADT scripts should preserve the official repair function'
+        Assert-True ($generatedPsadt.Contains('Remove-ADTHashtableNullOrEmptyValues')) 'Generated PSADT scripts should preserve the official initialization and validation logic'
+        Assert-True ($generatedPsadt.Contains('## <Perform Installation tasks here>')) 'Generated PSADT scripts should retain the official customization markers'
 
         $deploymentProfile.metadata.version = '1.0.2'
         $deploymentProfile.export.mode = 'PsadtComplete'

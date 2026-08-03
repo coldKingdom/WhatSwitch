@@ -52,10 +52,17 @@ BeforeAll {
     It 'genererar PSADT v4-anrop för EXE' {
         $analysis = New-TestAnalysis -Path $source
         $profile = New-WhatSwitchDeploymentProfile -AnalysisResult $analysis
+        $templatePath = 'C:\Program Files\WindowsPowerShell\Modules\PSAppDeployToolkit\4.1.8\Frontend\v4\Invoke-AppDeployToolkit.ps1'
+        $template = Get-Content -LiteralPath $templatePath -Raw
         $script = New-WhatSwitchPsadtScriptContent -Profile $profile -AnalysisResult $analysis
         $script | Should Match 'Open-ADTSession'
         $script | Should Match 'Start-ADTProcess'
         $script | Should Match 'Close-ADTSession'
+        $script | Should Match 'Show-ADTInstallationWelcome'
+        $script | Should Match 'function Repair-ADTDeployment'
+        $script | Should Match 'Remove-ADTHashtableNullOrEmptyValues'
+        $script | Should Match '## <Perform Installation tasks here>'
+        @($script -split "`r?`n").Count | Should Be (@($template -split "`r?`n").Count + 6)
     }
 
     It 'ignorerar en felaktig tom kandidat från äldre Sandbox-rapporter' {
