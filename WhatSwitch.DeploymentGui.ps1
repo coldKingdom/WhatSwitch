@@ -72,14 +72,18 @@ function Show-WhatSwitchDeploymentWizard {
             'PsadtComplete'
         } elseif ($controls.PsadtScriptModeRadio.IsChecked) { 'PsadtScriptOnly' } else { 'Direct' }
         $profile.export.includeSourceFolder = [bool]$controls.IncludeSourceFolderCheck.IsChecked
-        $profile.detection.selected = $controls.DetectionCombo.SelectedItem
+        $selectedDetection = $controls.DetectionCombo.SelectedItem
+        $profile.detection.selected = if ($selectedDetection -and
+            $selectedDetection.PSObject.Properties['isPlaceholder'] -and
+            [bool]$selectedDetection.isPlaceholder) { $null } else { $selectedDetection }
         $profile.detection.confirmed = [bool]$controls.ConfirmDetectionCheck.IsChecked
     }
 
     function Update-DetectionDetails {
         $candidate = $controls.DetectionCombo.SelectedItem
         $controls.ConfirmDetectionCheck.IsChecked = $false
-        if ($null -eq $candidate) {
+        if ($null -eq $candidate -or
+            ($candidate.PSObject.Properties['isPlaceholder'] -and [bool]$candidate.isPlaceholder)) {
             $controls.DetectionJsonBox.Text = ''
             return
         }
@@ -103,6 +107,19 @@ function Show-WhatSwitchDeploymentWizard {
         $previousId = if ($controls.DetectionCombo.SelectedItem) { [string]$controls.DetectionCombo.SelectedItem.id } else { '' }
         $candidates = @(Get-WhatSwitchDetectionCandidates -AnalysisResult $AnalysisResult -SandboxReport $SandboxReport)
         $profile.detection.candidates = $candidates
+        if ($candidates.Count -eq 0) {
+            $placeholder = [pscustomobject]@{
+                id = ''
+                displayName = 'Ingen regel ännu – kör Sandbox-testet'
+                isPlaceholder = $true
+            }
+            $controls.DetectionCombo.ItemsSource = @($placeholder)
+            $controls.DetectionCombo.SelectedIndex = 0
+            $controls.DetectionCombo.IsEnabled = $false
+            Update-DetectionDetails
+            return
+        }
+        $controls.DetectionCombo.IsEnabled = $true
         $controls.DetectionCombo.ItemsSource = $candidates
         $selected = $candidates | Where-Object id -EQ $previousId | Select-Object -First 1
         if (-not $selected -and $SandboxReport -and $SandboxReport.PSObject.Properties['selected'] -and $SandboxReport.selected) {
@@ -229,6 +246,7 @@ $($profile.commands.uninstall)
             $edited | Add-Member verified $false -Force
             $edited | Add-Member priority 500 -Force
             $profile.detection.candidates = @($profile.detection.candidates) + @($edited)
+            $controls.DetectionCombo.IsEnabled = $true
             $controls.DetectionCombo.ItemsSource = @($profile.detection.candidates)
             $controls.DetectionCombo.SelectedItem = $edited
             $controls.ConfirmDetectionCheck.IsChecked = $false

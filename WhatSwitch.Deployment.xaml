@@ -36,20 +36,23 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style TargetType="ComboBox">
-            <Setter Property="Foreground" Value="#F5F7FF" />
-            <Setter Property="Background" Value="#0D1629" />
+            <Setter Property="Foreground" Value="#101626" />
+            <Setter Property="Background" Value="#F4F6FB" />
             <Setter Property="BorderBrush" Value="#53678F" />
             <Setter Property="Padding" Value="8,5" />
             <Setter Property="MinHeight" Value="36" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="#F5F7FF" />
-            <Setter Property="Background" Value="#111A2E" />
+            <Setter Property="Foreground" Value="#101626" />
+            <Setter Property="Background" Value="#F4F6FB" />
             <Setter Property="Padding" Value="9,6" />
             <Style.Triggers>
-                <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#31456E" /></Trigger>
-                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#40598D" /></Trigger>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="Background" Value="#40598D" />
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#D7DDEB" /></Trigger>
             </Style.Triggers>
         </Style>
         <Style TargetType="ListBoxItem">
