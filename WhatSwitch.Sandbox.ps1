@@ -22,6 +22,12 @@ function New-WhatSwitchSandboxSession {
         [ValidateSet('Cmd', 'PowerShell')]
         [string]$FollowUpShell = 'Cmd',
 
+        [object[]]$DetectionCandidates = @(),
+
+        [AllowEmptyString()][string]$ExpectedProductName = '',
+
+        [AllowEmptyString()][string]$ExpectedPublisher = '',
+
         [switch]$EnableNetworking,
 
         [string]$SessionRoot = (Join-Path ([IO.Path]::GetTempPath()) 'WhatSwitchSandbox')
@@ -62,15 +68,24 @@ function New-WhatSwitchSandboxSession {
 
         $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
         $encodedFollowUp = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($FollowUpCommand))
+        $encodedExpectedProductName = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($ExpectedProductName))
+        $encodedExpectedPublisher = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($ExpectedPublisher))
+        $detectionCandidatesJson = if (@($DetectionCandidates).Count) {
+            @($DetectionCandidates) | ConvertTo-Json -Depth 20 -Compress
+        } else { '[]' }
+        $encodedDetectionCandidates = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($detectionCandidatesJson))
         $hasFollowUp = -not [string]::IsNullOrWhiteSpace($FollowUpCommand)
         $controlDirectory = Join-Path $sessionPath 'Control'
         [void](New-Item -ItemType Directory -Path $controlDirectory)
         $controlPath = Join-Path $controlDirectory 'WhatSwitch.control'
         $statusPath = Join-Path $controlDirectory 'WhatSwitch.status'
         $heartbeatPath = Join-Path $controlDirectory 'WhatSwitch.heartbeat'
+        $detectionReportPath = Join-Path $controlDirectory 'WhatSwitch.detection.json'
+        $selectedDetectionPath = Join-Path $controlDirectory 'WhatSwitch.selected-detection.json'
         [IO.File]::WriteAllText($controlPath, '', [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText($statusPath, 'Pending', [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText($heartbeatPath, '', [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($detectionReportPath, '{"schemaVersion":1,"status":"pending","candidates":[]}', [Text.UTF8Encoding]::new($false))
         $networkDescription = if ($EnableNetworking) { 'AKTIVERAT' } else { 'AVSTÄNGT' }
         $runner = @"
 `$ErrorActionPreference = 'Continue'
@@ -84,10 +99,15 @@ Write-Host 'Allt i Sandbox raderas permanent när fönstret stängs.'
 Write-Host
 `$command = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedCommand'))
 `$followUpCommand = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedFollowUp'))
+`$staticDetectionCandidates = @([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedDetectionCandidates')) | ConvertFrom-Json)
+`$expectedProductName = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedExpectedProductName'))
+`$expectedPublisher = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedExpectedPublisher'))
 `$hasFollowUp = `$$($hasFollowUp.ToString().ToLowerInvariant())
 `$controlPath = 'C:\WhatSwitchControl\WhatSwitch.control'
 `$statusPath = 'C:\WhatSwitchControl\WhatSwitch.status'
 `$heartbeatPath = 'C:\WhatSwitchControl\WhatSwitch.heartbeat'
+`$detectionReportPath = 'C:\WhatSwitchControl\WhatSwitch.detection.json'
+`$selectedDetectionPath = 'C:\WhatSwitchControl\WhatSwitch.selected-detection.json'
 `$lastRequest = ''
 
 function Set-WhatSwitchSandboxState {
@@ -100,6 +120,147 @@ function Update-WhatSwitchHeartbeat {
         [IO.File]::WriteAllText(`$heartbeatPath, [DateTime]::UtcNow.ToString('O'), [Text.UTF8Encoding]::new(`$false))
     }
     catch { }
+}
+
+function Get-WhatSwitchUninstallSnapshot {
+    `$items = @()
+    foreach (`$path in @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    )) {
+        `$items += @(Get-ItemProperty -Path `$path -ErrorAction SilentlyContinue | Where-Object DisplayName | ForEach-Object {
+            [pscustomobject]@{
+                keyPath = (`$_.PSPath -replace '^Microsoft\.PowerShell\.Core\\Registry::', '')
+                displayName = [string]`$_.DisplayName
+                displayVersion = [string]`$_.DisplayVersion
+                publisher = [string]`$_.Publisher
+                uninstallString = [string]`$_.UninstallString
+            }
+        })
+    }
+    return @(`$items)
+}
+
+function Get-WhatSwitchProgramDirectories {
+    `$directories = @()
+    foreach (`$root in @(`$env:ProgramFiles, `${env:ProgramFiles(x86)})) {
+        if (`$root -and (Test-Path -LiteralPath `$root -PathType Container)) {
+            `$directories += @(Get-ChildItem -LiteralPath `$root -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object FullName)
+        }
+    }
+    return @(`$directories | Sort-Object -Unique)
+}
+
+function ConvertTo-WhatSwitchRegistryPath {
+    param([string]`$Path)
+    if (`$Path -match '^HKEY_LOCAL_MACHINE\\') { return 'HKLM:\' + `$Path.Substring(19) }
+    if (`$Path -match '^HKEY_CURRENT_USER\\') { return 'HKCU:\' + `$Path.Substring(18) }
+    return `$Path
+}
+
+function Test-WhatSwitchDetectionRule {
+    param(`$Rule)
+    if (`$null -eq `$Rule) { return `$false }
+    try {
+        switch ([string]`$Rule.type) {
+            'Msi' {
+                `$code = [string]`$Rule.productCode
+                return [bool](
+                    (Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\`$code") -or
+                    (Test-Path -LiteralPath "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\`$code")
+                )
+            }
+            'File' {
+                `$path = [Environment]::ExpandEnvironmentVariables([string]`$Rule.path)
+                `$target = if (`$Rule.fileOrFolder) { Join-Path `$path ([string]`$Rule.fileOrFolder) } else { `$path }
+                return Test-Path -LiteralPath `$target
+            }
+            'Registry' {
+                `$path = ConvertTo-WhatSwitchRegistryPath ([string]`$Rule.keyPath)
+                if (-not (Test-Path -LiteralPath `$path)) { return `$false }
+                if (`$Rule.valueName) {
+                    `$value = Get-ItemPropertyValue -LiteralPath `$path -Name ([string]`$Rule.valueName) -ErrorAction SilentlyContinue
+                    return `$null -ne `$value
+                }
+                return `$true
+            }
+        }
+    }
+    catch { return `$false }
+    return `$false
+}
+
+`$beforeUninstall = @(Get-WhatSwitchUninstallSnapshot)
+`$beforeProgramDirectories = @(Get-WhatSwitchProgramDirectories)
+
+function Save-WhatSwitchDetectionReport {
+    param([ValidateSet('Installed', 'Uninstalled')][string]`$Phase)
+
+    `$dynamicCandidates = @()
+    `$afterUninstall = @(Get-WhatSwitchUninstallSnapshot)
+    `$beforeKeys = @(`$beforeUninstall | ForEach-Object keyPath)
+    foreach (`$entry in `$afterUninstall | Where-Object { `$_.keyPath -notin `$beforeKeys }) {
+        `$priority = 200
+        if (`$expectedProductName -and (
+            `$entry.displayName.IndexOf(`$expectedProductName, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+            `$expectedProductName.IndexOf(`$entry.displayName, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        )) { `$priority += 40 }
+        if (`$expectedPublisher -and `$entry.publisher.IndexOf(`$expectedPublisher, [StringComparison]::OrdinalIgnoreCase) -ge 0) { `$priority += 10 }
+        `$dynamicCandidates += [pscustomobject]@{
+            id = 'sandbox-registry-' + [guid]::NewGuid().ToString('N')
+            type = 'Registry'
+            displayName = "Registerpost: `$(`$entry.displayName)"
+            source = 'Windows Sandbox'
+            priority = `$priority
+            verified = `$true
+            keyPath = `$entry.keyPath
+            valueName = 'DisplayName'
+            detectionMethod = 'exists'
+            displayVersion = `$entry.displayVersion
+            publisher = `$entry.publisher
+            uninstallString = `$entry.uninstallString
+        }
+    }
+    `$afterProgramDirectories = @(Get-WhatSwitchProgramDirectories)
+    foreach (`$directory in `$afterProgramDirectories | Where-Object { `$_ -notin `$beforeProgramDirectories }) {
+        `$directoryPriority = if (`$expectedProductName -and (Split-Path -Leaf `$directory).IndexOf(`$expectedProductName, [StringComparison]::OrdinalIgnoreCase) -ge 0) { 140 } else { 100 }
+        `$dynamicCandidates += [pscustomobject]@{
+            id = 'sandbox-file-' + [guid]::NewGuid().ToString('N')
+            type = 'File'
+            displayName = "Installationsmapp: `$directory"
+            source = 'Windows Sandbox'
+            priority = `$directoryPriority
+            verified = `$true
+            path = Split-Path -Parent `$directory
+            fileOrFolder = Split-Path -Leaf `$directory
+            detectionMethod = 'exists'
+            operator = 'exists'
+            value = ''
+            is32BitOn64System = `$false
+        }
+    }
+
+    `$allCandidates = @(`$staticDetectionCandidates) + @(`$dynamicCandidates)
+    foreach (`$candidate in `$allCandidates) {
+        `$verified = Test-WhatSwitchDetectionRule `$candidate
+        `$candidate | Add-Member -NotePropertyName verified -NotePropertyValue `$verified -Force
+    }
+    `$selected = @(`$allCandidates | Where-Object verified | Sort-Object @{ Expression = {
+        if (`$_.PSObject.Properties['priority']) { return [int]`$_.priority }
+        switch ([string]`$_.type) { 'Msi' { 400 }; 'File' { if (`$_.source -eq 'Katalog') { 300 } else { 100 } }; 'Registry' { 200 }; default { 0 } }
+    }; Descending = `$true }) | Select-Object -First 1
+    `$report = [pscustomobject]@{
+        schemaVersion = 1
+        status = `$Phase.ToLowerInvariant()
+        testedAt = [DateTime]::UtcNow.ToString('O')
+        installedVerified = `$Phase -eq 'Installed' -and `$null -ne `$selected
+        uninstalledVerified = `$Phase -eq 'Uninstalled'
+        selected = `$selected
+        candidates = @(`$allCandidates)
+    }
+    [IO.File]::WriteAllText(`$detectionReportPath, (`$report | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new(`$false))
+    return `$selected
 }
 
 # Keep liveness independent of MSI/EXE execution. The main runner is blocked while it waits for an
@@ -146,15 +307,38 @@ function Invoke-WhatSwitchTestCommand {
 function Invoke-WhatSwitchInstall {
     Set-WhatSwitchSandboxState 'Installing'
     Invoke-WhatSwitchTestCommand -Text `$command -Mode '$CommandShell' -Title 'Kör installation/testkommando'
-    if (`$script:lastExitCode -in 0, 1641, 3010) { Set-WhatSwitchSandboxState 'Installed' }
+    if (`$script:lastExitCode -in 0, 1641, 3010) {
+        `$verifiedRule = Save-WhatSwitchDetectionReport -Phase Installed
+        if (`$verifiedRule) { Set-WhatSwitchSandboxState 'Installed' }
+        else { Set-WhatSwitchSandboxState 'InstalledUnverified' }
+    }
     else { Set-WhatSwitchSandboxState ('InstallFailed:' + `$script:lastExitCode) }
 }
 
 function Invoke-WhatSwitchUninstall {
     Set-WhatSwitchSandboxState 'Uninstalling'
     Invoke-WhatSwitchTestCommand -Text `$followUpCommand -Mode '$FollowUpShell' -Title 'Kör avinstallationskommando'
-    if (`$script:lastExitCode -in 0, 1641, 3010) { Set-WhatSwitchSandboxState 'Uninstalled' }
-    else { Set-WhatSwitchSandboxState ('UninstallFailed:' + `$script:lastExitCode) }
+    if (`$script:lastExitCode -notin 0, 1641, 3010) {
+        Set-WhatSwitchSandboxState ('UninstallFailed:' + `$script:lastExitCode)
+        return
+    }
+    `$selectedRule = `$null
+    if (Test-Path -LiteralPath `$selectedDetectionPath -PathType Leaf) {
+        `$selectedRule = Get-Content -LiteralPath `$selectedDetectionPath -Raw | ConvertFrom-Json
+    }
+    elseif (Test-Path -LiteralPath `$detectionReportPath -PathType Leaf) {
+        `$selectedRule = (Get-Content -LiteralPath `$detectionReportPath -Raw | ConvertFrom-Json).selected
+    }
+    if (`$selectedRule -and (Test-WhatSwitchDetectionRule `$selectedRule)) {
+        Set-WhatSwitchSandboxState 'UninstallFailed:DetectionStillPresent'
+    }
+    elseif (`$selectedRule) {
+        [void](Save-WhatSwitchDetectionReport -Phase Uninstalled)
+        Set-WhatSwitchSandboxState 'Uninstalled'
+    }
+    else {
+        Set-WhatSwitchSandboxState 'UninstallUnverified'
+    }
 }
 
 Write-Host 'Installationskommando:' -ForegroundColor Yellow
@@ -178,7 +362,7 @@ if (`$hasFollowUp) {
             `$requestAction = (`$request -split ':', 2)[0]
             if (`$requestAction -eq 'Install') {
                 `$currentState = Get-Content -LiteralPath `$statusPath -Raw -ErrorAction SilentlyContinue
-                if (`$currentState -eq 'Installed' -or `$currentState -match '^UninstallFailed') {
+                if (`$currentState -match '^Installed' -or `$currentState -match '^UninstallFailed') {
                     Write-Warning 'Programmet är redan installerat. Avinstallera det innan installationen körs igen.'
                 }
                 else {
@@ -202,7 +386,7 @@ if (`$hasFollowUp) {
                 }
                 elseif (`$key -eq [ConsoleKey]::I) {
                     `$currentState = Get-Content -LiteralPath `$statusPath -Raw -ErrorAction SilentlyContinue
-                    if (`$currentState -eq 'Installed' -or `$currentState -match '^UninstallFailed') {
+                    if (`$currentState -match '^Installed' -or `$currentState -match '^UninstallFailed') {
                         Write-Warning 'Programmet är redan installerat. Tryck U och avinstallera det först.'
                     }
                     else { Invoke-WhatSwitchInstall }
@@ -295,9 +479,13 @@ Write-Host 'PowerShell-fönstret lämnas öppet så att resultatet kan granskas.
             CommandShell = $CommandShell
             FollowUpCommand = $FollowUpCommand
             FollowUpShell = $FollowUpShell
+            ExpectedProductName = $ExpectedProductName
+            ExpectedPublisher = $ExpectedPublisher
             ControlPath = $controlPath
             StatusPath = $statusPath
             HeartbeatPath = $heartbeatPath
+            DetectionReportPath = $detectionReportPath
+            SelectedDetectionPath = $selectedDetectionPath
             NetworkingEnabled = [bool]$EnableNetworking
             StagingMethod = $stagingMethod
         }
@@ -321,6 +509,9 @@ function Start-WhatSwitchSandboxTest {
         [ValidateSet('Cmd', 'PowerShell')][string]$CommandShell = 'Cmd',
         [AllowEmptyString()][string]$FollowUpCommand = '',
         [ValidateSet('Cmd', 'PowerShell')][string]$FollowUpShell = 'Cmd',
+        [object[]]$DetectionCandidates = @(),
+        [AllowEmptyString()][string]$ExpectedProductName = '',
+        [AllowEmptyString()][string]$ExpectedPublisher = '',
         [switch]$EnableNetworking
     )
 
@@ -335,6 +526,8 @@ function Start-WhatSwitchSandboxTest {
 
     $session = New-WhatSwitchSandboxSession -InstallerPath $InstallerPath -Command $Command `
         -CommandShell $CommandShell -FollowUpCommand $FollowUpCommand -FollowUpShell $FollowUpShell `
+        -DetectionCandidates $DetectionCandidates `
+        -ExpectedProductName $ExpectedProductName -ExpectedPublisher $ExpectedPublisher `
         -EnableNetworking:$EnableNetworking
     try {
         $process = Start-Process -FilePath $sandboxExecutable -ArgumentList ('"' + $session.ConfigurationPath + '"') -PassThru
@@ -352,4 +545,31 @@ function Start-WhatSwitchSandboxTest {
     catch {
         throw "Windows Sandbox kunde inte startas. Kontrollera att funktionen är aktiverad och att ingen annan Sandbox-session blockerar starten. $($_.Exception.Message)"
     }
+}
+
+function Get-WhatSwitchSandboxDetectionReport {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Session)
+
+    if (-not $Session.DetectionReportPath -or -not (Test-Path -LiteralPath $Session.DetectionReportPath -PathType Leaf)) {
+        return $null
+    }
+    try { Get-Content -LiteralPath $Session.DetectionReportPath -Raw -Encoding utf8 | ConvertFrom-Json }
+    catch { return $null }
+}
+
+function Set-WhatSwitchSandboxDetectionRule {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Session,
+        [Parameter(Mandatory)]$DetectionRule
+    )
+
+    if (-not $Session.SelectedDetectionPath) { throw 'Sandbox-sessionen saknar sökväg för vald detektionsregel.' }
+    [IO.File]::WriteAllText(
+        [string]$Session.SelectedDetectionPath,
+        ($DetectionRule | ConvertTo-Json -Depth 20),
+        [Text.UTF8Encoding]::new($false)
+    )
+    Get-Item -LiteralPath $Session.SelectedDetectionPath
 }

@@ -261,9 +261,9 @@
                                         <ComboBoxItem Content="PowerShell" />
                                         <ComboBoxItem Content="CMD" />
                                     </ComboBox>
-                                    <Button x:Name="BuildIntuneWinButton" Content="Skapa .intunewin…" Padding="11,6"
+                                    <Button x:Name="DeploymentGuideButton" Content="Deploymentguide…" Padding="11,6"
                                             IsEnabled="False" Margin="0,0,8,8"
-                                            ToolTip="Packa den valda installern för en Win32-app i Microsoft Intune." />
+                                            ToolTip="Bygg ett verifierat Intune- eller PSADT-deploymentpaket steg för steg." />
                                     <Button x:Name="CopyJsonButton" Content="Kopiera JSON" Padding="11,6" Margin="0,0,8,8" />
                                     <Button x:Name="SaveJsonButton" Content="Spara JSON…" Padding="11,6" Margin="0,0,0,8" />
                                 </WrapPanel>

@@ -9,6 +9,7 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot '../WhatSwitch.psd1') -Force
 . (Join-Path $PSScriptRoot '../WhatSwitch.Sandbox.ps1')
 . (Join-Path $PSScriptRoot '../WhatSwitch.IntuneWin.ps1')
+. (Join-Path $PSScriptRoot '../WhatSwitch.Deployment.ps1')
 $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('whatswitch-tests-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $testRoot)
 $failures = [Collections.Generic.List[string]]::new()
@@ -131,6 +132,9 @@ try {
     Assert-True ($runnerText.Contains('WhatSwitch.heartbeat')) 'The runner should report that the sandbox session is still active'
     Assert-True ($runnerText.Contains('Start-Job -ScriptBlock')) 'Heartbeat should continue while an installer process blocks the main runner'
     Assert-True ($runnerText.Contains("requestAction -eq 'Install'")) 'The active sandbox should accept another install request without opening a second session'
+    Assert-True ($runnerText.Contains('Save-WhatSwitchDetectionReport')) 'The sandbox runner should discover and verify real detection rules'
+    Assert-True ($runnerText.Contains('UninstallFailed:DetectionStillPresent')) 'The sandbox should reject a successful uninstall exit code when detection still matches'
+    Assert-True (Test-Path -LiteralPath $sandboxSession.DetectionReportPath -PathType Leaf) 'The sandbox session should expose a detection report'
 
     $intuneSource = Join-Path $testRoot 'IntuneSource'
     [void](New-Item -ItemType Directory -Path (Join-Path $intuneSource 'support') -Force)
@@ -203,6 +207,45 @@ try {
         $sevenZipMsi = Get-WhatSwitchResult -Path $sevenZipMsiPath
         Assert-Equal $sevenZipMsi.Engine 'msi' 'The 7-Zip MSI should remain an MSI result'
         Assert-True ($null -eq $sevenZipMsi.Catalog) 'The 7-Zip MSI must not inherit the EXE catalog command'
+        $sevenZipProfile = New-WhatSwitchDeploymentProfile -AnalysisResult $sevenZipMsi
+        Assert-Equal $sevenZipProfile.detection.selected.type 'Msi' 'The 7-Zip MSI should use MSI ProductCode detection'
+        Assert-Equal $sevenZipProfile.detection.selected.productCode $sevenZipMsi.Msi.ProductCode 'The deployment profile should preserve the MSI ProductCode'
+    }
+
+    $deploymentProfile = New-WhatSwitchDeploymentProfile -AnalysisResult $inno
+    $manualDetection = New-WhatSwitchDetectionCandidate -Type File -Id 'manual-test' -DisplayName 'Synthetic file rule' `
+        -Priority 1 -Source 'Test' -Properties @{ path = 'C:\Program Files'; fileOrFolder = 'Synthetic'; detectionMethod = 'exists' }
+    $deploymentProfile.detection.selected = $manualDetection
+    $deploymentProfile.detection.confirmed = $true
+    $profileValidation = Test-WhatSwitchDeploymentProfile -Profile $deploymentProfile
+    Assert-True $profileValidation.IsValid 'A complete deployment profile should validate'
+    Assert-Equal $deploymentProfile.schemaVersion 1 'Deployment profiles should use schema version 1'
+    Assert-Equal $deploymentProfile.commands.installBehavior 'System' 'System should be the default Intune install context'
+
+    $deploymentOutput = Join-Path $testRoot 'DeploymentExports'
+    [void](New-Item -ItemType Directory -Path $deploymentOutput)
+    $directExport = Export-WhatSwitchDeploymentPackage -Profile $deploymentProfile -AnalysisResult $inno -OutputDirectory $deploymentOutput
+    Assert-True (Test-Path -LiteralPath $directExport.IntuneWinPath -PathType Leaf) 'Direct deployment export should create an Intune package'
+    Assert-True (Test-Path -LiteralPath (Join-Path $directExport.Path 'Intune\Intune-Settings.json')) 'Direct export should include Intune settings'
+    Assert-True (Test-Path -LiteralPath (Join-Path $directExport.Path 'Intune\README-SV.md')) 'Direct export should include a Swedish Intune guide'
+    Assert-True (Test-Path -LiteralPath $directExport.ChecksumPath) 'Direct export should include SHA-256 checksums'
+
+    if (Test-Path -LiteralPath $script:WhatSwitchPsadtModulePath -PathType Leaf) {
+        $deploymentProfile.metadata.version = '1.0.1'
+        $deploymentProfile.export.mode = 'PsadtScriptOnly'
+        $scriptOnlyExport = Export-WhatSwitchDeploymentPackage -Profile $deploymentProfile -AnalysisResult $inno -OutputDirectory $deploymentOutput
+        $scriptOnlySource = Join-Path $scriptOnlyExport.Path 'Source'
+        Assert-True (Test-Path -LiteralPath (Join-Path $scriptOnlySource 'Invoke-AppDeployToolkit.exe')) 'PSADT script-only should include the v4 frontend executable'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $scriptOnlySource 'PSAppDeployToolkit'))) 'PSADT script-only should not bundle the toolkit module'
+        $generatedPsadt = Get-Content -LiteralPath (Join-Path $scriptOnlySource 'Invoke-AppDeployToolkit.ps1') -Raw
+        Assert-True ($generatedPsadt.Contains('Open-ADTSession')) 'Generated PSADT scripts should use v4 session APIs'
+        Assert-True ($generatedPsadt.Contains('Start-ADTProcess')) 'Generated EXE deployments should use Start-ADTProcess'
+
+        $deploymentProfile.metadata.version = '1.0.2'
+        $deploymentProfile.export.mode = 'PsadtComplete'
+        $completeExport = Export-WhatSwitchDeploymentPackage -Profile $deploymentProfile -AnalysisResult $inno -OutputDirectory $deploymentOutput
+        Assert-True (Test-Path -LiteralPath (Join-Path $completeExport.Path 'Source\PSAppDeployToolkit\PSAppDeployToolkit.psd1')) 'Complete PSADT export should bundle the toolkit module'
+        Assert-True (Test-Path -LiteralPath (Join-Path $completeExport.Path 'Source\PSAppDeployToolkit-LICENSE.txt')) 'Complete PSADT export should include the toolkit license'
     }
 
     if ($IsWindows) {
@@ -229,7 +272,13 @@ try {
         Assert-True ($guiScript.Contains('ActiveSandboxUninstall')) 'The existing uninstall card button should target the active sandbox session'
         Assert-True ($guiScript.Contains("Programmet är redan installerat i Sandbox")) 'The GUI should prevent a second install before uninstall'
         Assert-True ($guiScript.Contains("Get-Process -Name 'WindowsSandboxClient'")) 'The GUI should detect a pre-existing external Windows Sandbox session'
-        Assert-True ($guiScript.Contains('New-WhatSwitchGuiIntuneWinPackage')) 'The GUI should expose local Intune Win32 packaging'
+        Assert-True ($guiScript.Contains('Show-WhatSwitchDeploymentWizard')) 'The GUI should expose the unified deployment guide'
+        Assert-True ($null -ne $guiDocument.SelectSingleNode('//*[@x:Name="DeploymentGuideButton"]', $namespaceManager)) 'The result toolbar should expose the deployment guide button'
+        [xml]$deploymentGuiDocument = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../WhatSwitch.Deployment.xaml') -Raw -Encoding utf8
+        $deploymentNamespace = [Xml.XmlNamespaceManager]::new($deploymentGuiDocument.NameTable)
+        $deploymentNamespace.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
+        Assert-True ($null -ne $deploymentGuiDocument.SelectSingleNode('//*[@x:Name="WizardTabs"]', $deploymentNamespace)) 'The deployment guide should contain the six-step wizard'
+        Assert-True ($null -ne $deploymentGuiDocument.SelectSingleNode('//*[@x:Name="DetectionCombo"]', $deploymentNamespace)) 'The deployment guide should require a selected detection rule'
     }
 }
 finally {

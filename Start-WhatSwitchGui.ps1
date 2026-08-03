@@ -34,6 +34,8 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Import-Module (Join-Path $PSScriptRoot 'WhatSwitch.psd1') -Force -ErrorAction Stop
 . (Join-Path $PSScriptRoot 'WhatSwitch.Sandbox.ps1')
 . (Join-Path $PSScriptRoot 'WhatSwitch.IntuneWin.ps1')
+. (Join-Path $PSScriptRoot 'WhatSwitch.Deployment.ps1')
+. (Join-Path $PSScriptRoot 'WhatSwitch.DeploymentGui.ps1')
 
 $xamlPath = Join-Path $PSScriptRoot 'WhatSwitch.Gui.xaml'
 $xaml = Get-Content -LiteralPath $xamlPath -Raw -Encoding utf8
@@ -51,7 +53,7 @@ $names = @(
     'ReanalyzeButton', 'ClearButton', 'EmptyState', 'ResultsScroll', 'EngineText',
     'ResultFileText', 'ConfidenceBadge', 'ConfidenceText', 'MetadataCard', 'ProductText',
     'CompanyVersionText', 'CatalogCard', 'CatalogNameText', 'CatalogInstallText',
-    'CatalogNoteText', 'WarningCard', 'WarningText', 'ShellSelector', 'BuildIntuneWinButton', 'CopyJsonButton',
+    'CatalogNoteText', 'WarningCard', 'WarningText', 'ShellSelector', 'DeploymentGuideButton', 'CopyJsonButton',
     'SaveJsonButton', 'CommandPanel', 'NotesText', 'ModifiersText', 'CandidatesExpander',
     'CandidatesText', 'MsiExpander', 'MsiSummaryText', 'MsiGrid', 'StatusText', 'BusyBar'
 )
@@ -121,67 +123,6 @@ function Set-WhatSwitchClipboard {
     }
 }
 
-function New-WhatSwitchGuiIntuneWinPackage {
-    if (-not $state.Path -or $state.IsBusy) { return }
-
-    $choice = [Windows.MessageBox]::Show(
-        $window,
-        "Välj Ja för att endast paketera den valda installerfilen (rekommenderas).`n`nVälj Nej om installern behöver andra filer och du vill välja en källmapp vars samtliga filer och undermappar ska inkluderas.",
-        'Innehåll i .intunewin-paketet',
-        [Windows.MessageBoxButton]::YesNoCancel,
-        [Windows.MessageBoxImage]::Question,
-        [Windows.MessageBoxResult]::Yes
-    )
-    if ($choice -eq [Windows.MessageBoxResult]::Cancel) { return }
-
-    $includeSourceFolder = $choice -eq [Windows.MessageBoxResult]::No
-    $sourceFolder = Split-Path -Parent $state.Path
-    if ($includeSourceFolder) {
-        Add-Type -AssemblyName System.Windows.Forms
-        $folderDialog = [Windows.Forms.FolderBrowserDialog]::new()
-        try {
-            $folderDialog.Description = 'Välj källmappen. Alla vanliga filer och undermappar inkluderas i paketet.'
-            $folderDialog.InitialDirectory = $sourceFolder
-            $folderDialog.UseDescriptionForTitle = $true
-            if ($folderDialog.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { return }
-            $sourceFolder = $folderDialog.SelectedPath
-        }
-        finally { $folderDialog.Dispose() }
-    }
-
-    $saveDialog = [Microsoft.Win32.SaveFileDialog]::new()
-    $saveDialog.Title = 'Spara Intune Win32-paket'
-    $saveDialog.Filter = 'Intune Win32-paket|*.intunewin'
-    $saveDialog.DefaultExt = '.intunewin'
-    $saveDialog.AddExtension = $true
-    $saveDialog.FileName = ([IO.Path]::GetFileNameWithoutExtension($state.Path) + '.intunewin')
-    if (-not $saveDialog.ShowDialog($window)) { return }
-
-    try {
-        $ui.BuildIntuneWinButton.IsEnabled = $false
-        Set-WhatSwitchGuiStatus 'Skapar .intunewin-paket…' -Busy
-        $window.Dispatcher.Invoke([Action]{}, [Windows.Threading.DispatcherPriority]::Render)
-        $package = New-WhatSwitchIntuneWinPackage -SetupFile $state.Path -OutputPath $saveDialog.FileName `
-            -SourceFolder $sourceFolder -IncludeSourceFolder:$includeSourceFolder `
-            -ApplicationName ([IO.Path]::GetFileNameWithoutExtension($state.Path))
-        Set-WhatSwitchGuiStatus "Intune-paket skapat: $($package.Path)"
-        [Windows.MessageBox]::Show(
-            $window,
-            "Paketet skapades lokalt.`n`nFiler: $($package.FileCount)`nKällstorlek: $(Format-WhatSwitchFileSize $package.SourceSize)`nPaketstorlek: $(Format-WhatSwitchFileSize $package.PackageSize)`n`n$($package.Path)",
-            '.intunewin skapad',
-            [Windows.MessageBoxButton]::OK,
-            [Windows.MessageBoxImage]::Information
-        ) | Out-Null
-    }
-    catch {
-        Set-WhatSwitchGuiStatus "Kunde inte skapa .intunewin: $($_.Exception.Message)" -Error
-        [Windows.MessageBox]::Show($window, $_.Exception.Message, 'Paketeringen misslyckades', 'OK', 'Warning') | Out-Null
-    }
-    finally {
-        $ui.BuildIntuneWinButton.IsEnabled = [bool]$state.Path
-    }
-}
-
 function Invoke-WhatSwitchGuiSandboxTest {
     param(
         [Parameter(Mandatory)][string]$Command,
@@ -207,7 +148,7 @@ function Invoke-WhatSwitchGuiSandboxTest {
                 Set-WhatSwitchGuiStatus 'Den aktiva Sandbox-sessionen arbetar redan. Vänta tills kommandot är klart.' -Error
                 return
             }
-            if ($sandboxState -eq 'Installed' -or $sandboxState -match '^UninstallFailed') {
+            if ($sandboxState -match '^Installed' -or $sandboxState -match '^UninstallFailed') {
                 Set-WhatSwitchGuiStatus 'Programmet är redan installerat i Sandbox. Testa avinstallationen innan du installerar igen.' -Error
                 return
             }
@@ -279,6 +220,8 @@ Fortsätt?
         $window.Dispatcher.Invoke([Action]{}, [Windows.Threading.DispatcherPriority]::Render)
         $session = Start-WhatSwitchSandboxTest -InstallerPath $state.Path -Command $Command `
             -CommandShell $CommandShell -FollowUpCommand $FollowUpCommand -FollowUpShell $FollowUpShell `
+            -DetectionCandidates @(Get-WhatSwitchDetectionCandidates -AnalysisResult $state.Result) `
+            -ExpectedProductName ([string]$state.Result.ProductName) -ExpectedPublisher ([string]$state.Result.CompanyName) `
             -EnableNetworking:$networkEnabled
         $state.SandboxSession = $session
         $state.SandboxRequestPending = $false
@@ -333,7 +276,7 @@ function Test-WhatSwitchGuiSandboxReady {
     if ([string]::IsNullOrWhiteSpace($session.FollowUpCommand) -or -not $state.Path) { return $false }
     if (-not [string]::Equals($session.SourceInstallerPath, $state.Path, [StringComparison]::OrdinalIgnoreCase)) { return $false }
     $sandboxState = Get-WhatSwitchGuiSandboxState
-    if ($sandboxState -ne 'Installed' -and $sandboxState -notmatch '^UninstallFailed') { return $false }
+    if ($sandboxState -notmatch '^Installed' -and $sandboxState -notmatch '^UninstallFailed') { return $false }
     return Test-WhatSwitchGuiSandboxAlive
 }
 
@@ -348,12 +291,13 @@ function Update-WhatSwitchSandboxButtons {
             [string]::Equals($session.Command, [string]$button.Tag.Command, [StringComparison]::Ordinal) -and
             [string]::Equals($session.CommandShell, [string]$button.Tag.Shell, [StringComparison]::OrdinalIgnoreCase)
         $blockedByState = $sameActiveCommand -and (
-            $sandboxState -in 'Pending', 'Installing', 'Installed', 'Uninstalling' -or
+            $sandboxState -in 'Pending', 'Installing', 'Uninstalling' -or
+            $sandboxState -match '^Installed' -or
             $sandboxState -match '^UninstallFailed'
         )
         $button.IsEnabled = [bool]$button.Tag.BaseEnabled -and -not $blockedByState
         if ($blockedByState) {
-            $button.ToolTip = if ($sandboxState -eq 'Installed' -or $sandboxState -match '^UninstallFailed') {
+            $button.ToolTip = if ($sandboxState -match '^Installed' -or $sandboxState -match '^UninstallFailed') {
                 'Programmet är redan installerat i Sandbox. Testa avinstallationen först.'
             } else {
                 'Den aktiva Sandbox-sessionen arbetar redan.'
@@ -654,7 +598,7 @@ function Clear-WhatSwitchGui {
     $ui.ResultsScroll.Visibility = 'Collapsed'
     $ui.ReanalyzeButton.IsEnabled = $false
     $ui.ClearButton.IsEnabled = $false
-    $ui.BuildIntuneWinButton.IsEnabled = $false
+    $ui.DeploymentGuideButton.IsEnabled = $false
     $ui.CommandPanel.Children.Clear()
     $ui.InputScroll.ScrollToTop()
     Set-WhatSwitchGuiStatus 'Redo — dra in en installer för att börja'
@@ -679,7 +623,7 @@ function Invoke-WhatSwitchGuiAnalysis {
         $ui.FileCard.Visibility = 'Visible'
         $ui.ReanalyzeButton.IsEnabled = $false
         $ui.ClearButton.IsEnabled = $false
-        $ui.BuildIntuneWinButton.IsEnabled = $false
+        $ui.DeploymentGuideButton.IsEnabled = $false
         Set-WhatSwitchGuiStatus "Analyserar $($file.Name)…" -Busy
         $window.Dispatcher.Invoke([Action]{}, [Windows.Threading.DispatcherPriority]::Render)
 
@@ -687,7 +631,7 @@ function Invoke-WhatSwitchGuiAnalysis {
         Show-WhatSwitchResult $result
         $ui.ReanalyzeButton.IsEnabled = $true
         $ui.ClearButton.IsEnabled = $true
-        $ui.BuildIntuneWinButton.IsEnabled = $true
+        $ui.DeploymentGuideButton.IsEnabled = $true
         Set-WhatSwitchGuiStatus "Klart — $($result.Label), säkerhet $($result.Confidence)"
     }
     catch {
@@ -736,7 +680,16 @@ $ui.BrowseButton.Add_Click({
 $ui.ReanalyzeButton.Add_Click({ if ($state.Path) { Invoke-WhatSwitchGuiAnalysis -LiteralPath $state.Path } })
 $ui.ClearButton.Add_Click({ Clear-WhatSwitchGui })
 $ui.ShellSelector.Add_SelectionChanged({ if ($state.Result) { Update-WhatSwitchCommands } })
-$ui.BuildIntuneWinButton.Add_Click({ New-WhatSwitchGuiIntuneWinPackage })
+$ui.DeploymentGuideButton.Add_Click({
+    if (-not $state.Result -or $state.IsBusy) { return }
+    $export = Show-WhatSwitchDeploymentWizard -Owner $window -AnalysisResult $state.Result -GuiState $state `
+        -StartSandboxAction {
+            param($installCommand, $uninstallCommand)
+            Invoke-WhatSwitchGuiSandboxTest -Command ([string]$installCommand) -CommandShell Cmd `
+                -FollowUpCommand ([string]$uninstallCommand) -FollowUpShell Cmd
+        }
+    if ($export) { Set-WhatSwitchGuiStatus "Deploymentpaketet skapades: $($export.Path)" }
+})
 $ui.CopyJsonButton.Add_Click({
     if ($state.Result) { Set-WhatSwitchClipboard -Text ($state.Result | ConvertTo-Json -Depth 20) -Description 'JSON-resultatet' }
 })
@@ -768,10 +721,12 @@ $sandboxStatusTimer.Add_Tick({
     if ($sandboxState -ne $state.LastSandboxState) {
         $state.LastSandboxState = $sandboxState
         switch -Regex ($sandboxState) {
-            '^Installed$' { Set-WhatSwitchGuiStatus 'Installationen lyckades i Sandbox. Avinstallationsknappen är nu aktiv.' }
+            '^Installed$' { Set-WhatSwitchGuiStatus 'Installationen och detektionsregeln verifierades i Sandbox. Avinstallationsknappen är nu aktiv.' }
+            '^InstalledUnverified$' { Set-WhatSwitchGuiStatus 'Installationen avslutades utan fel, men ingen detektionsregel kunde verifieras.' -Error }
             '^InstallFailed:(.+)$' { Set-WhatSwitchGuiStatus "Installationen misslyckades i Sandbox (slutkod $($Matches[1]))." -Error }
             '^Uninstalling$' { Set-WhatSwitchGuiStatus 'Avinstallation pågår i Sandbox…' -Busy }
             '^Uninstalled$' { Set-WhatSwitchGuiStatus 'Avinstallationen lyckades i Sandbox.' }
+            '^UninstallUnverified$' { Set-WhatSwitchGuiStatus 'Avinstallationen avslutades utan fel men kunde inte verifieras.' -Error }
             '^UninstallFailed:(.+)$' { Set-WhatSwitchGuiStatus "Avinstallationen misslyckades i Sandbox (slutkod $($Matches[1]))." -Error }
         }
     }

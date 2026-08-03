@@ -11,6 +11,7 @@ and behavior reference. The PowerShell entry points are:
 - `Start-WhatSwitchGui.cmd` / `Start-WhatSwitchGui.ps1` - Windows GUI with file drag-and-drop
 - `Invoke-WhatSwitch.ps1` - human-readable command-line interface
 - `tests/run-tests.ps1` - dependency-free test suite
+- `tests/WhatSwitch.Deployment.Tests.ps1` - Pester coverage for deployment profiles and exports
 
 ## Requirements
 
@@ -18,6 +19,8 @@ and behavior reference. The PowerShell entry points are:
 - Windows 10/11 or Windows Server with WPF for the graphical interface
 - Windows for deep MSI property analysis through the read-only Windows Installer database API
   (signature detection and command generation also work where that API is unavailable)
+- Windows Sandbox for isolated install/uninstall verification (optional)
+- PSAppDeployToolkit 4.1.8 for complete or script-only PSADT export
 
 ## PowerShell usage
 
@@ -29,15 +32,29 @@ with individual copy buttons. Every runnable command also has **Test in Sandbox*
 fresh Windows Sandbox, stages only the selected installer through a read-only mapped folder, and
 runs the command after a three-second cancellation window.
 
-Use **Create .intunewin** to build an Intune Win32 content package locally. The default mode wraps
-only the selected installer; an optional source-folder mode includes all regular files and
-subfolders for installers with dependencies. Keep the output outside that source folder.
+Use **Deploymentguide…** for a six-step Intune workflow. It collects app metadata, install and
+uninstall commands, execution context, detection, requirements, return codes, and output mode. Each
+export produces a complete deployment folder with an encrypted `.intunewin`, `Intune-Settings.json`,
+a Swedish portal guide, analysis and Sandbox evidence, and SHA-256 checksums.
+
+The guide supports three output modes per export:
+
+- **Direct** packages the analyzed installer and commands without a wrapper.
+- **PSADT script-only** includes the v4 frontend and generated script but expects the toolkit module
+  to be installed on the target.
+- **Complete PSADT 4.1.8** includes the official v4 frontend, module, assets, and LGPL license.
+
+The selected installer is packaged by default. Enable the source-folder option only when the
+installer depends on adjacent files, and keep the deployment output outside that source folder.
 
 When a usable uninstall command is known, the same Sandbox session keeps listening after the
-installation. The uninstall card's existing **Test in Sandbox** button becomes enabled only after
-the installation command reports success and the active Sandbox is still responding. Click it—or
+installation. What Switch? snapshots uninstall registry entries and top-level program directories,
+then combines those results with MSI ProductCode and catalog rules. A successful exit code alone is
+therefore not treated as verified installation. The uninstall card's existing **Test in Sandbox**
+button becomes enabled when the active session is ready. Click it—or
 press `U` in the Sandbox console—to test uninstall without losing the installed state in a second
-disposable session.
+disposable session. The chosen detection rule is checked again after uninstall and must no longer
+match for the removal to be marked verified.
 
 If the same What Switch? test session is already open, its original installation command can be run
 again after it has been uninstalled, without opening a second Sandbox. What Switch? prevents the same
@@ -83,6 +100,9 @@ Run the self-contained test suite with:
 
 ```powershell
 pwsh -NoProfile -File ./tests/run-tests.ps1
+
+# Optional Pester suite (compatible with the locally installed Pester 3.4+)
+Invoke-Pester ./tests/WhatSwitch.Deployment.Tests.ps1
 ```
 
 The analyzer is deliberately static. A detected or curated command must still be tested in a
@@ -92,7 +112,8 @@ disposable VM before deployment.
 
 The PowerShell port covers engine detection, PE metadata, curated catalog matching, CMD-to-
 PowerShell command conversion, best-effort switch harvesting, read-only MSI property analysis,
-and local `.intunewin` packaging. The browser-only WiX Burn inner-CAB X-ray remains in the original
+Sandbox detection verification, local `.intunewin` packaging, Intune deployment profiles, and
+PSAppDeployToolkit v4 export. The browser-only WiX Burn inner-CAB X-ray remains in the original
 web app; it is not invoked by the PowerShell module.
 
 ---

@@ -557,9 +557,22 @@ function Get-WhatSwitchResult {
             BestEffort = $candidateScan
             BytesScanned = $bytes.Length
             WasTruncated = $file.Length -gt $bytes.Length
-            AnalyzerVersion = '1.0.0'
+            AnalyzerVersion = '1.5.0'
         }
     }
 }
 
-Export-ModuleMember -Function Get-WhatSwitchResult, Find-WhatSwitchSwitch, ConvertTo-WhatSwitchPowerShellCommand, Get-WhatSwitchCatalog
+. (Join-Path $PSScriptRoot 'WhatSwitch.IntuneWin.ps1')
+. (Join-Path $PSScriptRoot 'WhatSwitch.Deployment.ps1')
+
+Export-ModuleMember -Function @(
+    'Get-WhatSwitchResult'
+    'Find-WhatSwitchSwitch'
+    'ConvertTo-WhatSwitchPowerShellCommand'
+    'Get-WhatSwitchCatalog'
+    'New-WhatSwitchDetectionCandidate'
+    'Get-WhatSwitchDetectionCandidates'
+    'New-WhatSwitchDeploymentProfile'
+    'Test-WhatSwitchDeploymentProfile'
+    'Export-WhatSwitchDeploymentPackage'
+)
