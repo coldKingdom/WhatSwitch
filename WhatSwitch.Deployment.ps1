@@ -234,6 +234,31 @@ function Split-WhatSwitchCommandLine {
     [pscustomobject]@{ FilePath = $value; Arguments = '' }
 }
 
+function Resolve-WhatSwitchUninstallCommand {
+    [CmdletBinding()]
+    param(
+        $DetectionRule,
+        [AllowEmptyString()][string]$FallbackCommand = ''
+    )
+
+    if ($null -eq $DetectionRule) { return $FallbackCommand }
+    $quiet = if ($DetectionRule.PSObject.Properties['quietUninstallString']) { [string]$DetectionRule.quietUninstallString } else { '' }
+    if (-not [string]::IsNullOrWhiteSpace($quiet)) { return $quiet.Trim() }
+    $registered = if ($DetectionRule.PSObject.Properties['uninstallString']) { [string]$DetectionRule.uninstallString } else { '' }
+    if ([string]::IsNullOrWhiteSpace($registered)) { return $FallbackCommand }
+
+    $registered = $registered.Trim()
+    $registeredParts = Split-WhatSwitchCommandLine -Command $registered
+    if (-not [string]::IsNullOrWhiteSpace([string]$registeredParts.Arguments)) { return $registered }
+    if (-not [string]::IsNullOrWhiteSpace($FallbackCommand)) {
+        $fallbackParts = Split-WhatSwitchCommandLine -Command $FallbackCommand
+        if (-not [string]::IsNullOrWhiteSpace([string]$fallbackParts.Arguments)) {
+            return $registered + ' ' + ([string]$fallbackParts.Arguments).Trim()
+        }
+    }
+    $registered
+}
+
 function ConvertTo-WhatSwitchPsSingleQuotedString {
     param([AllowEmptyString()][string]$Value)
     "'" + $Value.Replace("'", "''") + "'"
@@ -312,7 +337,9 @@ function New-WhatSwitchPsadtScriptContent {
     $sourceFileName = [string]$Profile.metadata.sourceFileName
     $sourceLiteral = ConvertTo-WhatSwitchPsSingleQuotedString $sourceFileName
     $installParts = Split-WhatSwitchCommandLine -Command ([string]$Profile.commands.install)
-    $uninstallParts = Split-WhatSwitchCommandLine -Command ([string]$Profile.commands.uninstall)
+    $resolvedUninstallCommand = Resolve-WhatSwitchUninstallCommand -DetectionRule $Profile.detection.selected `
+        -FallbackCommand ([string]$Profile.commands.uninstall)
+    $uninstallParts = Split-WhatSwitchCommandLine -Command $resolvedUninstallCommand
     $requireAdminLiteral = if ([string]$Profile.commands.installBehavior -eq 'System') { '$true' } else { '$false' }
     if ([string]::IsNullOrWhiteSpace($TemplateContent)) {
         $templatePath = Join-Path (Split-Path -Parent $script:WhatSwitchPsadtModulePath) 'Frontend\v4\Invoke-AppDeployToolkit.ps1'
@@ -327,7 +354,7 @@ function New-WhatSwitchPsadtScriptContent {
         if ($AnalysisResult.Msi -and $AnalysisResult.Msi.ProductCode) {
             $code = ConvertTo-WhatSwitchPsSingleQuotedString ([string]$AnalysisResult.Msi.ProductCode)
             $uninstallAction = "Start-ADTMsiProcess -Action Uninstall -ProductCode $code"
-            $uninstallRemainder = ([string]$Profile.commands.uninstall -replace '(?i)^msiexec(?:\.exe)?\s+/x\s+(?:"[^"]+"|\S+)\s*', '').Trim()
+            $uninstallRemainder = ($resolvedUninstallCommand -replace '(?i)^msiexec(?:\.exe)?\s+/x\s+(?:"[^"]+"|\S+)\s*', '').Trim()
             $uninstallAction += Get-WhatSwitchPsadtMsiArgumentSuffix -Remainder $uninstallRemainder
         } else {
             $uninstallAction = "Start-ADTMsiProcess -Action Uninstall -FilePath $sourceLiteral"

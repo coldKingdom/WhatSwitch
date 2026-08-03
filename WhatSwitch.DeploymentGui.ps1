@@ -33,6 +33,7 @@ function Show-WhatSwitchDeploymentWizard {
     }
 
     $profile = New-WhatSwitchDeploymentProfile -AnalysisResult $AnalysisResult
+    $wizardState = @{ LastSuggestedUninstallCommand = [string]$profile.commands.uninstall }
     $controls.AppNameBox.Text = [string]$profile.metadata.name
     $controls.VersionBox.Text = [string]$profile.metadata.version
     $controls.PublisherBox.Text = [string]$profile.metadata.publisher
@@ -83,6 +84,18 @@ function Show-WhatSwitchDeploymentWizard {
             return
         }
         $controls.DetectionJsonBox.Text = $candidate | ConvertTo-Json -Depth 12
+        $currentUninstall = $controls.UninstallCommandBox.Text.Trim()
+        $mayReplace = [string]::IsNullOrWhiteSpace($currentUninstall) -or
+            $currentUninstall -eq $wizardState.LastSuggestedUninstallCommand -or
+            $currentUninstall -match '<[^>]+>'
+        if ($mayReplace) {
+            $resolvedUninstall = Resolve-WhatSwitchUninstallCommand -DetectionRule $candidate `
+                -FallbackCommand ([string]$wizardState.LastSuggestedUninstallCommand)
+            if (-not [string]::IsNullOrWhiteSpace($resolvedUninstall)) {
+                $controls.UninstallCommandBox.Text = $resolvedUninstall
+                $wizardState.LastSuggestedUninstallCommand = $resolvedUninstall
+            }
+        }
     }
 
     function Set-DetectionCandidates {

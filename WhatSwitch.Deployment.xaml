@@ -10,6 +10,9 @@
         <SolidColorBrush x:Key="Border" Color="#2C3B60" />
         <SolidColorBrush x:Key="Muted" Color="#9AA9C8" />
         <SolidColorBrush x:Key="Accent" Color="#6C8CFF" />
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#F5F7FF" />
+        </Style>
         <Style TargetType="Button">
             <Setter Property="Foreground" Value="#F5F7FF" />
             <Setter Property="Background" Value="#253556" />
@@ -33,12 +36,31 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style TargetType="ComboBox">
-            <Setter Property="Foreground" Value="#101626" />
-            <Setter Property="Background" Value="#F4F6FB" />
+            <Setter Property="Foreground" Value="#F5F7FF" />
+            <Setter Property="Background" Value="#0D1629" />
             <Setter Property="BorderBrush" Value="#53678F" />
             <Setter Property="Padding" Value="8,5" />
             <Setter Property="MinHeight" Value="36" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="#F5F7FF" />
+            <Setter Property="Background" Value="#111A2E" />
+            <Setter Property="Padding" Value="9,6" />
+            <Style.Triggers>
+                <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#31456E" /></Trigger>
+                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#40598D" /></Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="#E9EDFA" />
+            <Setter Property="Background" Value="Transparent" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="Background" Value="#2A3D68" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
         <Style TargetType="CheckBox">
             <Setter Property="Foreground" Value="#E8ECF7" />
@@ -56,6 +78,7 @@
             <Setter Property="Margin" Value="0,10,0,4" />
         </Style>
         <Style x:Key="StepTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#F5F7FF" />
             <Setter Property="FontSize" Value="25" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,0,0,6" />

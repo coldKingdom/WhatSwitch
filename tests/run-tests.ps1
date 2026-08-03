@@ -220,12 +220,14 @@ try {
     $legacySandboxReport = [pscustomobject]@{
         candidates = @(
             [pscustomobject]@{ value = @(); Count = 0 }
-            [pscustomobject]@{ id = 'valid-registry'; type = 'Registry'; displayName = 'Valid registry'; priority = 200; source = 'Windows Sandbox'; verified = $true; keyPath = 'HKEY_LOCAL_MACHINE\SOFTWARE\Synthetic'; valueName = 'DisplayName' }
+            [pscustomobject]@{ id = 'valid-registry'; type = 'Registry'; displayName = 'Valid registry'; priority = 200; source = 'Windows Sandbox'; verified = $true; keyPath = 'HKEY_LOCAL_MACHINE\SOFTWARE\Synthetic'; valueName = 'DisplayName'; uninstallString = '"C:\Program Files\Synthetic\unins000.exe"'; quietUninstallString = '' }
         )
     }
     $legacyCandidates = @(Get-WhatSwitchDetectionCandidates -AnalysisResult $inno -SandboxReport $legacySandboxReport)
     Assert-Equal $legacyCandidates.Count 1 'Malformed legacy Sandbox candidates should be ignored instead of crashing the GUI'
     Assert-Equal $legacyCandidates[0].type 'Registry' 'Valid candidates after a malformed entry should still be loaded'
+    Assert-Equal (Resolve-WhatSwitchUninstallCommand -DetectionRule $legacyCandidates[0] -FallbackCommand '"%ProgramFiles%\<App>\unins000.exe" /VERYSILENT') `
+        '"C:\Program Files\Synthetic\unins000.exe" /VERYSILENT' 'A discovered registry uninstall path should replace the placeholder and keep its silent arguments'
     $manualDetection = New-WhatSwitchDetectionCandidate -Type File -Id 'manual-test' -DisplayName 'Synthetic file rule' `
         -Priority 1 -Source 'Test' -Properties @{ path = 'C:\Program Files'; fileOrFolder = 'Synthetic'; detectionMethod = 'exists' }
     $deploymentProfile.detection.selected = $manualDetection
@@ -296,6 +298,16 @@ try {
         $deploymentNamespace.AddNamespace('x', 'http://schemas.microsoft.com/winfx/2006/xaml')
         Assert-True ($null -ne $deploymentGuiDocument.SelectSingleNode('//*[@x:Name="WizardTabs"]', $deploymentNamespace)) 'The deployment guide should contain the six-step wizard'
         Assert-True ($null -ne $deploymentGuiDocument.SelectSingleNode('//*[@x:Name="DetectionCombo"]', $deploymentNamespace)) 'The deployment guide should require a selected detection rule'
+        $darkComboForeground = $deploymentGuiDocument.SelectSingleNode('//*[local-name()="Style" and @TargetType="ComboBox"]/*[local-name()="Setter" and @Property="Foreground" and @Value="#F5F7FF"]', $deploymentNamespace)
+        Assert-True ($null -ne $darkComboForeground) 'Deployment guide ComboBoxes should use light text on the dark theme'
+        $lightTextBlocks = $deploymentGuiDocument.SelectSingleNode('//*[local-name()="Style" and @TargetType="TextBlock"]/*[local-name()="Setter" and @Property="Foreground" and @Value="#F5F7FF"]', $deploymentNamespace)
+        Assert-True ($null -ne $lightTextBlocks) 'Deployment guide headings and inherited text should never use the black WPF default'
+        $lightStepTitles = $deploymentGuiDocument.SelectSingleNode('//*[local-name()="Style" and @x:Key="StepTitle"]/*[local-name()="Setter" and @Property="Foreground" and @Value="#F5F7FF"]', $deploymentNamespace)
+        Assert-True ($null -ne $lightStepTitles) 'Deployment guide step headings should explicitly use light text'
+        $darkComboItems = $deploymentGuiDocument.SelectSingleNode('//*[local-name()="Style" and @TargetType="ComboBoxItem"]/*[local-name()="Setter" and @Property="Foreground" and @Value="#F5F7FF"]', $deploymentNamespace)
+        Assert-True ($null -ne $darkComboItems) 'Deployment guide ComboBox items should never fall back to black text'
+        $darkStepItems = $deploymentGuiDocument.SelectSingleNode('//*[local-name()="Style" and @TargetType="ListBoxItem"]/*[local-name()="Setter" and @Property="Foreground" and @Value="#E9EDFA"]', $deploymentNamespace)
+        Assert-True ($null -ne $darkStepItems) 'Deployment guide step titles should use explicit light text'
     }
 }
 finally {

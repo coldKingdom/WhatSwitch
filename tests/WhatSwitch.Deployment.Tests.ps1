@@ -98,6 +98,25 @@ BeforeAll {
         $overrideLine.Contains("-ArgumentList '/qb /norestart ALLUSERS=1'") | Should Be $true
     }
 
+    It 'använder registerregelns verkliga avinstallationssträng i PSADT' {
+        $analysis = New-TestAnalysis -Path $source
+        $profile = New-WhatSwitchDeploymentProfile -AnalysisResult $analysis
+        $profile.detection.selected = [pscustomobject]@{
+            type = 'Registry'
+            uninstallString = '"C:\Program Files\Synthetic\unins000.exe"'
+            quietUninstallString = ''
+        }
+        $resolved = Resolve-WhatSwitchUninstallCommand -DetectionRule $profile.detection.selected -FallbackCommand $profile.commands.uninstall
+        $resolved | Should Be '"C:\Program Files\Synthetic\unins000.exe" /S'
+        $script = New-WhatSwitchPsadtScriptContent -Profile $profile -AnalysisResult $analysis
+        $uninstallLine = $script -split "`r?`n" | Where-Object { $_ -match "Start-ADTProcess -FilePath 'C:\\Program Files\\Synthetic\\unins000.exe'" }
+        $uninstallLine.Contains("-ArgumentList '/S'") | Should Be $true
+
+        $profile.detection.selected.quietUninstallString = '"C:\Program Files\Synthetic\unins000.exe" /VERYSILENT'
+        (Resolve-WhatSwitchUninstallCommand -DetectionRule $profile.detection.selected -FallbackCommand $profile.commands.uninstall) |
+            Should Be '"C:\Program Files\Synthetic\unins000.exe" /VERYSILENT'
+    }
+
     It 'exporterar Intune-inställningar, guide och kontrollsummor' {
         $analysis = New-TestAnalysis -Path $source
         $profile = New-WhatSwitchDeploymentProfile -AnalysisResult $analysis

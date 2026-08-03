@@ -141,6 +141,7 @@ function Get-WhatSwitchUninstallSnapshot {
                 displayVersion = [string]`$_.DisplayVersion
                 publisher = [string]`$_.Publisher
                 uninstallString = [string]`$_.UninstallString
+                quietUninstallString = [string]`$_.QuietUninstallString
             }
         })
     }
@@ -225,6 +226,7 @@ function Save-WhatSwitchDetectionReport {
             displayVersion = `$entry.displayVersion
             publisher = `$entry.publisher
             uninstallString = `$entry.uninstallString
+            quietUninstallString = `$entry.quietUninstallString
         }
     }
     `$afterProgramDirectories = @(Get-WhatSwitchProgramDirectories)
