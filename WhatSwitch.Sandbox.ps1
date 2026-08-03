@@ -99,7 +99,12 @@ Write-Host 'Allt i Sandbox raderas permanent när fönstret stängs.'
 Write-Host
 `$command = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedCommand'))
 `$followUpCommand = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedFollowUp'))
-`$staticDetectionCandidates = @([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedDetectionCandidates')) | ConvertFrom-Json)
+`$staticDetectionJson = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedDetectionCandidates'))
+`$staticDetectionCandidates = if (`$staticDetectionJson -eq '[]' -or [string]::IsNullOrWhiteSpace(`$staticDetectionJson)) {
+    @()
+} else {
+    @(`$staticDetectionJson | ConvertFrom-Json)
+}
 `$expectedProductName = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedExpectedProductName'))
 `$expectedPublisher = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$encodedExpectedPublisher'))
 `$hasFollowUp = `$$($hasFollowUp.ToString().ToLowerInvariant())

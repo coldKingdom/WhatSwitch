@@ -133,6 +133,7 @@ try {
     Assert-True ($runnerText.Contains('Start-Job -ScriptBlock')) 'Heartbeat should continue while an installer process blocks the main runner'
     Assert-True ($runnerText.Contains("requestAction -eq 'Install'")) 'The active sandbox should accept another install request without opening a second session'
     Assert-True ($runnerText.Contains('Save-WhatSwitchDetectionReport')) 'The sandbox runner should discover and verify real detection rules'
+    Assert-True ($runnerText.Contains("staticDetectionJson -eq '[]'")) 'An empty detection list should stay empty in Windows PowerShell 5.1'
     Assert-True ($runnerText.Contains('UninstallFailed:DetectionStillPresent')) 'The sandbox should reject a successful uninstall exit code when detection still matches'
     Assert-True (Test-Path -LiteralPath $sandboxSession.DetectionReportPath -PathType Leaf) 'The sandbox session should expose a detection report'
 
@@ -213,6 +214,15 @@ try {
     }
 
     $deploymentProfile = New-WhatSwitchDeploymentProfile -AnalysisResult $inno
+    $legacySandboxReport = [pscustomobject]@{
+        candidates = @(
+            [pscustomobject]@{ value = @(); Count = 0 }
+            [pscustomobject]@{ id = 'valid-registry'; type = 'Registry'; displayName = 'Valid registry'; priority = 200; source = 'Windows Sandbox'; verified = $true; keyPath = 'HKEY_LOCAL_MACHINE\SOFTWARE\Synthetic'; valueName = 'DisplayName' }
+        )
+    }
+    $legacyCandidates = @(Get-WhatSwitchDetectionCandidates -AnalysisResult $inno -SandboxReport $legacySandboxReport)
+    Assert-Equal $legacyCandidates.Count 1 'Malformed legacy Sandbox candidates should be ignored instead of crashing the GUI'
+    Assert-Equal $legacyCandidates[0].type 'Registry' 'Valid candidates after a malformed entry should still be loaded'
     $manualDetection = New-WhatSwitchDetectionCandidate -Type File -Id 'manual-test' -DisplayName 'Synthetic file rule' `
         -Priority 1 -Source 'Test' -Properties @{ path = 'C:\Program Files'; fileOrFolder = 'Synthetic'; detectionMethod = 'exists' }
     $deploymentProfile.detection.selected = $manualDetection

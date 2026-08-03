@@ -92,7 +92,7 @@ function Show-WhatSwitchDeploymentWizard {
         $profile.detection.candidates = $candidates
         $controls.DetectionCombo.ItemsSource = $candidates
         $selected = $candidates | Where-Object id -EQ $previousId | Select-Object -First 1
-        if (-not $selected -and $SandboxReport -and $SandboxReport.selected) {
+        if (-not $selected -and $SandboxReport -and $SandboxReport.PSObject.Properties['selected'] -and $SandboxReport.selected) {
             $selected = $candidates | Where-Object id -EQ ([string]$SandboxReport.selected.id) | Select-Object -First 1
         }
         if (-not $selected) { $selected = $candidates | Select-Object -First 1 }
@@ -101,6 +101,8 @@ function Show-WhatSwitchDeploymentWizard {
     }
 
     function Refresh-SandboxReport {
+        try {
+        $controls.SandboxStatusText.Foreground = '#9FE1CF'
         $session = $GuiState.SandboxSession
         if ($null -eq $session) {
             $controls.SandboxStatusText.Text = 'Sandbox-test har inte körts.'
@@ -124,6 +126,12 @@ function Show-WhatSwitchDeploymentWizard {
         else {
             $controls.SandboxStatusText.Text = "Sandbox-status: $sandboxState. Klicka på Hämta Sandbox-resultat när installationen är klar."
             Set-DetectionCandidates $null
+        }
+        }
+        catch {
+            $controls.SandboxStatusText.Text = "Sandbox-resultatet kunde inte läsas: $($_.Exception.Message)"
+            $controls.SandboxStatusText.Foreground = '#FF9EAA'
+            return
         }
     }
 
@@ -232,7 +240,10 @@ $($profile.commands.uninstall)
         & $StartSandboxAction $profile.commands.install $profile.commands.uninstall
         Refresh-SandboxReport
     })
-    $controls.RefreshDetectionButton.Add_Click({ Refresh-SandboxReport })
+    $controls.RefreshDetectionButton.Add_Click({
+        try { Refresh-SandboxReport }
+        catch { $controls.SandboxStatusText.Text = "Sandbox-resultatet kunde inte läsas: $($_.Exception.Message)" }
+    })
     $controls.CancelWizardButton.Add_Click({ $wizard.Close() })
     $controls.BackWizardButton.Add_Click({ Set-WizardStep ($controls.WizardTabs.SelectedIndex - 1) })
     $controls.NextWizardButton.Add_Click({

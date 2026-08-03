@@ -58,6 +58,17 @@ BeforeAll {
         $script | Should Match 'Close-ADTSession'
     }
 
+    It 'ignorerar en felaktig tom kandidat från äldre Sandbox-rapporter' {
+        $analysis = New-TestAnalysis -Path $source
+        $report = [pscustomobject]@{ candidates = @(
+            [pscustomobject]@{ value = @(); Count = 0 }
+            [pscustomobject]@{ id = 'valid'; type = 'Registry'; displayName = 'Valid'; source = 'Windows Sandbox'; priority = 200; verified = $true; keyPath = 'HKEY_LOCAL_MACHINE\SOFTWARE\Synthetic' }
+        ) }
+        $candidates = @(Get-WhatSwitchDetectionCandidates -AnalysisResult $analysis -SandboxReport $report)
+        $candidates.Count | Should Be 1
+        $candidates[0].type | Should Be 'Registry'
+    }
+
     It 'exporterar Intune-inställningar, guide och kontrollsummor' {
         $analysis = New-TestAnalysis -Path $source
         $profile = New-WhatSwitchDeploymentProfile -AnalysisResult $analysis

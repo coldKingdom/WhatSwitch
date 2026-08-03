@@ -102,6 +102,7 @@ function Get-WhatSwitchDetectionCandidates {
 
     if ($SandboxReport -and $SandboxReport.candidates) {
         foreach ($item in @($SandboxReport.candidates)) {
+            if ($null -eq $item -or -not $item.PSObject.Properties['type']) { continue }
             $type = [string]$item.type
             if ($type -notin 'Registry', 'File') { continue }
             $priority = if ($item.PSObject.Properties['priority']) { [int]$item.priority } elseif ($type -eq 'Registry') { 200 } else { 100 }
@@ -112,9 +113,10 @@ function Get-WhatSwitchDetectionCandidates {
                 }
             }
             $candidates.Add((New-WhatSwitchDetectionCandidate -Type $type `
-                -Id $(if ($item.id) { [string]$item.id } else { 'sandbox-' + [guid]::NewGuid().ToString('N') }) `
-                -DisplayName $(if ($item.displayName) { [string]$item.displayName } else { "$type från Sandbox" }) `
-                -Priority $priority -Source 'Windows Sandbox' -Properties $properties -Verified ([bool]$item.verified)))
+                -Id $(if ($item.PSObject.Properties['id'] -and $item.id) { [string]$item.id } else { 'sandbox-' + [guid]::NewGuid().ToString('N') }) `
+                -DisplayName $(if ($item.PSObject.Properties['displayName'] -and $item.displayName) { [string]$item.displayName } else { "$type från Sandbox" }) `
+                -Priority $priority -Source 'Windows Sandbox' -Properties $properties `
+                -Verified $(if ($item.PSObject.Properties['verified']) { [bool]$item.verified } else { $false })))
         }
     }
 
