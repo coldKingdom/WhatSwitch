@@ -13,3 +13,7 @@ node_modules/
 .DS_Store
 .env
 .env.production
+
+# generated What Switch packages and local known-good snapshots
+deployment/
+backups/

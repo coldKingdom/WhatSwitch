@@ -1,4 +1,103 @@
-# SwitchHunt
+# What Switch? for PowerShell 7.6
+
+**What Switch?** is the native PowerShell 7.6 port of SwitchHunt's static installer analysis. It
+reads a local Windows installer, identifies its engine, and returns silent install, repair,
+uninstall, and extraction commands without executing or uploading the file.
+
+The original Astro/TypeScript web application remains in `src/` as the upstream implementation
+and behavior reference. The PowerShell entry points are:
+
+- `WhatSwitch.psd1` / `WhatSwitch.psm1` - reusable script module
+- `Start-WhatSwitchGui.cmd` / `Start-WhatSwitchGui.ps1` - Windows GUI with file drag-and-drop
+- `Invoke-WhatSwitch.ps1` - human-readable command-line interface
+- `tests/run-tests.ps1` - dependency-free test suite
+
+## Requirements
+
+- PowerShell 7.6 or newer
+- Windows 10/11 or Windows Server with WPF for the graphical interface
+- Windows for deep MSI property analysis through the read-only Windows Installer database API
+  (signature detection and command generation also work where that API is unavailable)
+
+## PowerShell usage
+
+### GUI
+
+Double-click `Start-WhatSwitchGui.cmd`, then drag an installer onto the drop area. The GUI displays
+the detected engine, metadata, catalog match, MSI properties, and PowerShell- or CMD-form commands
+with individual copy buttons. Every runnable command also has **Test in Sandbox**, which creates a
+fresh Windows Sandbox, stages only the selected installer through a read-only mapped folder, and
+runs the command after a three-second cancellation window.
+
+Use **Create .intunewin** to build an Intune Win32 content package locally. The default mode wraps
+only the selected installer; an optional source-folder mode includes all regular files and
+subfolders for installers with dependencies. Keep the output outside that source folder.
+
+When a usable uninstall command is known, the same Sandbox session keeps listening after the
+installation. The uninstall card's existing **Test in Sandbox** button becomes enabled only after
+the installation command reports success and the active Sandbox is still responding. Click it—or
+press `U` in the Sandbox console—to test uninstall without losing the installed state in a second
+disposable session.
+
+If the same What Switch? test session is already open, its original installation command can be run
+again after it has been uninstalled, without opening a second Sandbox. What Switch? prevents the same
+package from being installed twice in succession because MSI maintenance/reinstall behavior varies
+between packages. A Sandbox started outside the current What Switch? session
+cannot receive mapped folders retroactively, so What Switch? detects it before launch and asks that it
+be closed instead of attempting a second instance.
+
+Sandbox networking, clipboard sharing, device redirection, and vGPU are disabled by default. Enable
+the GUI's **Allow network in Sandbox** option only for web/bootstrap installers that must download
+their payload. Windows Sandbox must first be enabled in Windows Features.
+
+You can also launch it from a terminal, optionally with a file already selected:
+
+```powershell
+./Start-WhatSwitchGui.ps1
+./Start-WhatSwitchGui.ps1 -Path C:\Installers\setup.exe
+```
+
+The launcher automatically starts an STA PowerShell process, which WPF and the Windows Clipboard
+require.
+
+### Command line
+
+```powershell
+# Friendly terminal output (PowerShell-ready commands by default)
+./Invoke-WhatSwitch.ps1 -Path C:\Installers\setup.exe
+
+# Machine-readable output
+./Invoke-WhatSwitch.ps1 -Path C:\Installers\app.msi -AsJson
+
+# Opt in to a noisy switch scan for unknown/custom executables
+./Invoke-WhatSwitch.ps1 -Path C:\Installers\custom.exe -BestEffort
+
+# Use it as a normal PowerShell module
+Import-Module ./WhatSwitch.psd1
+$result = Get-WhatSwitchResult -Path C:\Installers\app.msi
+$result.Commands | Format-Table Label, PowerShellCommand
+$result.Msi.PublicProperties | Format-Table Name, Value, IsSecret
+```
+
+Run the self-contained test suite with:
+
+```powershell
+pwsh -NoProfile -File ./tests/run-tests.ps1
+```
+
+The analyzer is deliberately static. A detected or curated command must still be tested in a
+disposable VM before deployment.
+
+### Port scope
+
+The PowerShell port covers engine detection, PE metadata, curated catalog matching, CMD-to-
+PowerShell command conversion, best-effort switch harvesting, read-only MSI property analysis,
+and local `.intunewin` packaging. The browser-only WiX Burn inner-CAB X-ray remains in the original
+web app; it is not invoked by the PowerShell module.
+
+---
+
+## Original web application
 
 **Drop a Windows installer in your browser → get its silent-install switches.** No upload, no signup, no agent. The file you drop is read **entirely in your browser** - it never touches a server.
 
